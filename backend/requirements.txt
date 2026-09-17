@@ -1,0 +1,29 @@
+# --- Web framework ---
+Flask==3.0.3
+flask-cors==4.0.1
+Werkzeug==3.0.3
+python-dotenv==1.0.1
+gunicorn==22.0.0
+
+# --- Database ---
+pymongo==4.8.0
+
+# --- Security ---
+PyJWT==2.9.0
+bcrypt==4.2.0
+cryptography==43.0.1
+
+# --- Document processing ---
+pypdf==4.3.1
+python-docx==1.1.2
+
+# --- PDF generation ---
+reportlab==4.2.2
+
+# --- AI / RAG ---
+numpy==1.26.4
+openai>=1.59.0            # used only to talk to a LOCAL LLaMA-compatible endpoint
+                          # (>=1.59 required: older 1.x pins break under httpx>=0.28)
+
+# --- Optional: real local embedding model (enable EMBEDDING_PROVIDER=sentence-transformers) ---
+# sentence-transformers==3.1.1

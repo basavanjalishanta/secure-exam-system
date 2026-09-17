@@ -1,0 +1,35 @@
+UNIVERSITY COLLEGE OF ENGINEERING
+END SEMESTER EXAMINATION - MAY 2023
+BCS401 - DATABASE MANAGEMENT SYSTEMS
+Semester: 6            Time: 3 Hours            Max Marks: 100
+
+Instructions: Answer ALL questions. Figures to the right indicate full marks.
+
+SECTION A - 10 x 2 = 20
+
+1. Define a database management system. (2) [Unit 1]
+2. What is data independence? (2) [Unit 1]
+3. Define entity and entity set. (2) [Unit 2]
+4. What is a weak entity set? (2) [Unit 2]
+5. List any two aggregate functions in SQL. (2) [Unit 3]
+6. What is a view in SQL? (2) [Unit 3]
+7. Define functional dependency. (2) [Unit 4]
+8. State the condition for BCNF. (2) [Unit 4]
+9. List the ACID properties. (2) [Unit 5]
+10. What is a deadlock? (2) [Unit 5]
+
+SECTION B - 5 x 6 = 30
+
+11. Explain the three-schema architecture of a DBMS with a diagram. (6) [Unit 1]
+12. Describe the different types of attributes in the ER model with examples. (6) [Unit 2]
+13. Explain nested subqueries in SQL with examples. (6) [Unit 3]
+14. Explain second and third normal form with an example. (6) [Unit 4]
+15. Explain the two-phase locking protocol. (6) [Unit 5]
+
+SECTION C - 5 x 10 = 50
+
+16. Explain the advantages of a DBMS over a file processing system in detail. (10) [Unit 1]
+17. Construct an ER diagram for a university database and reduce it to relational tables. (10) [Unit 2]
+18. Explain joins in SQL with syntax and examples for each type. (10) [Unit 3]
+19. Explain normalization and its different normal forms in detail with examples. (10) [Unit 4]
+20. Explain conflict serializability and testing for serializability using a precedence graph. (10) [Unit 5]

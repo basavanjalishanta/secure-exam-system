@@ -1,0 +1,93 @@
+DATABASE MANAGEMENT SYSTEMS - CONSOLIDATED NOTES
+
+Unit 1 - Introduction
+A Database Management System (DBMS) is a collection of interrelated data and a set of
+programs to access those data. The primary goal of a DBMS is to provide a way to store
+and retrieve database information that is both convenient and efficient. Database systems
+are designed to manage large bodies of information. File processing systems have major
+disadvantages such as data redundancy and inconsistency, difficulty in accessing data,
+data isolation, integrity problems, atomicity problems, concurrent access anomalies and
+security problems. Data abstraction has three levels: the physical level describes how data
+are stored, the logical level describes what data are stored and the relationships among
+them, and the view level describes only part of the database for a particular user group.
+Data independence is the ability to modify a schema definition at one level without
+affecting a schema definition at the next higher level. Physical data independence and
+logical data independence are the two types. The three-schema architecture separates the
+user applications from the physical database using internal, conceptual and external schemas.
+
+Unit 2 - ER Model
+The entity-relationship (ER) data model is based on a perception of a real world that
+consists of a collection of basic objects, called entities, and of relationships among these
+objects. An entity is a thing or object in the real world that is distinguishable from all
+other objects. An entity set is a set of entities of the same type that share the same
+properties. Attributes are descriptive properties possessed by each member of an entity
+set. Attributes can be simple or composite, single-valued or multivalued, derived, and
+may take a null value. A superkey is a set of one or more attributes that allow us to
+identify uniquely an entity in the entity set. A candidate key is a minimal superkey and a
+primary key is a chosen candidate key. A relationship is an association among several
+entities. Mapping cardinality expresses the number of entities to which another entity can
+be associated via a relationship set: one-to-one, one-to-many, many-to-one and
+many-to-many. A weak entity set is one that does not have sufficient attributes to form a
+primary key and depends on a strong (identifying) entity set. Generalization is a bottom-up
+approach that combines lower-level entity sets into a higher-level entity set based on
+common features. Specialization is the top-down counterpart. Aggregation is an abstraction
+through which relationships are treated as higher-level entities. An ER diagram is reduced
+to relational tables by creating a table for each strong entity set, each weak entity set
+including the primary key of the identifying entity, and each many-to-many relationship set.
+
+Unit 3 - SQL
+SQL (Structured Query Language) is the standard language for relational database systems.
+The Data Definition Language (DDL) includes CREATE, ALTER and DROP for defining schema.
+The Data Manipulation Language (DML) includes SELECT, INSERT, UPDATE and DELETE. The Data
+Control Language (DCL) includes GRANT and REVOKE for authorization. A basic SQL query has
+the form SELECT A1, A2 FROM r1, r2 WHERE P. The WHERE clause specifies a predicate. SQL
+supports set operations UNION, INTERSECT and EXCEPT. Aggregate functions are avg, min, max,
+sum and count. The GROUP BY clause forms groups of tuples with the same value on the
+grouping attributes, and the HAVING clause applies a predicate to groups. A nested
+subquery is a select-from-where expression nested within another query. Joins include
+inner join, left outer join, right outer join and full outer join. A view is a relation
+that is not part of the logical model but is made visible to a user as a virtual relation.
+Integrity constraints include not null, primary key, unique, check and foreign key
+referential integrity. A trigger is a statement that the system executes automatically as a
+side effect of a modification to the database. Example: SELECT dept_name, AVG(salary) FROM
+instructor GROUP BY dept_name HAVING AVG(salary) > 42000.
+
+Unit 4 - Normalization
+Normalization is the process of organizing the attributes and relations of a relational
+database to reduce data redundancy and improve data integrity. A functional dependency
+X -> Y holds if, for every legal relation instance, whenever two tuples agree on X they
+also agree on Y. Armstrong's axioms are reflexivity, augmentation and transitivity; from
+these we derive union, decomposition and pseudotransitivity. The closure of an attribute
+set X, written X+, is the set of attributes functionally determined by X. A canonical
+cover is a minimal set of functional dependencies equivalent to the original set.
+First Normal Form (1NF) requires that the domain of every attribute is atomic. Second
+Normal Form (2NF) requires 1NF and that every non-prime attribute is fully functionally
+dependent on every candidate key (no partial dependency). Third Normal Form (3NF)
+requires 2NF and that no non-prime attribute is transitively dependent on a candidate key;
+formally, for every FD X -> A, either X is a superkey, or A is a prime attribute.
+Boyce-Codd Normal Form (BCNF) requires that for every non-trivial FD X -> A, X is a
+superkey. A decomposition is lossless if the natural join of the decomposed relations
+yields exactly the original relation. Dependency preservation means the decomposition
+allows all original functional dependencies to be enforced without a join. A multivalued
+dependency leads to Fourth Normal Form (4NF). Example: given R(A,B,C,D) with A -> B,
+B -> C, D -> A, the candidate key is D; B -> C causes a transitive dependency so R is not
+in 3NF and should be decomposed.
+
+Unit 5 - Transactions
+A transaction is a unit of program execution that accesses and possibly updates various
+data items. The ACID properties are Atomicity (all or nothing), Consistency (a transaction
+preserves database consistency), Isolation (concurrent transactions are unaware of each
+other) and Durability (committed changes persist). A transaction passes through the
+states active, partially committed, failed, aborted and committed. A schedule is a
+sequence of instructions from a set of concurrent transactions. A schedule is conflict
+serializable if it can be transformed into a serial schedule by swapping non-conflicting
+instructions; this is tested with a precedence graph that must be acyclic. View
+serializability is a less restrictive condition. A schedule is recoverable if, for each
+pair Ti and Tj where Tj reads a data item written by Ti, the commit of Ti appears before
+the commit of Tj. Concurrency control ensures serializability. The two-phase locking (2PL)
+protocol requires a growing phase where locks are acquired and a shrinking phase where
+locks are released; strict 2PL holds exclusive locks until commit. Timestamp ordering
+assigns each transaction a timestamp and orders conflicting operations by timestamp.
+Deadlock is handled by prevention, avoidance (wait-die, wound-wait), or detection using a
+wait-for graph. Log-based recovery uses a write-ahead log with undo and redo; checkpoints
+reduce the amount of log to be scanned during recovery.

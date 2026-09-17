@@ -1,0 +1,29 @@
+DATABASE MANAGEMENT SYSTEMS (BCS401)
+Semester 6
+
+Unit 1 - Introduction
+Purpose of database systems, view of data, data models, database languages, database
+system architecture, database users and administrators, data abstraction, instances and
+schemas, DBMS vs file processing system, three-schema architecture, data independence.
+
+Unit 2 - ER Model
+Entity-relationship model, entity sets, relationship sets, attributes, keys, mapping
+cardinalities, weak entity sets, extended ER features, generalization, specialization,
+aggregation, reduction of ER schema to tables, ER diagram notation.
+
+Unit 3 - SQL
+Structured Query Language, DDL, DML, DCL, basic queries, set operations, aggregate
+functions, group by, having, nested subqueries, joins, views, integrity constraints,
+triggers, authorization, embedded SQL.
+
+Unit 4 - Normalization
+Relational database design, functional dependencies, Armstrong's axioms, closure of
+attribute sets, canonical cover, first normal form, second normal form, third normal
+form, Boyce-Codd normal form, decomposition, lossless join, dependency preservation,
+multivalued dependencies and fourth normal form.
+
+Unit 5 - Transactions
+Transaction concept, ACID properties, transaction states, concurrent executions,
+serializability, conflict and view serializability, recoverability, concurrency control,
+lock-based protocols, two-phase locking, timestamp ordering, deadlock handling,
+recovery system, log-based recovery, checkpoints.

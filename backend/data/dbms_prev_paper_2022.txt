@@ -1,0 +1,35 @@
+UNIVERSITY COLLEGE OF ENGINEERING
+END SEMESTER EXAMINATION - NOVEMBER 2022
+BCS401 - DATABASE MANAGEMENT SYSTEMS
+Semester: 6            Time: 3 Hours            Max Marks: 100
+
+Instructions: Answer ALL questions.
+
+SECTION A - 10 x 2 = 20
+
+1. What is a data model? (2) [Unit 1]
+2. Differentiate between schema and instance. (2) [Unit 1]
+3. What is mapping cardinality? (2) [Unit 2]
+4. Define generalization. (2) [Unit 2]
+5. Write the syntax of the GROUP BY clause. (2) [Unit 3]
+6. What is a trigger? (2) [Unit 3]
+7. What is the closure of an attribute set? (2) [Unit 4]
+8. Define lossless join decomposition. (2) [Unit 4]
+9. What is conflict serializability? (2) [Unit 5]
+10. Define a checkpoint in recovery. (2) [Unit 5]
+
+SECTION B - 5 x 6 = 30
+
+11. Explain the levels of data abstraction with a diagram. (6) [Unit 1]
+12. Explain generalization, specialization and aggregation in the ER model. (6) [Unit 2]
+13. Explain aggregate functions and the HAVING clause with examples. (6) [Unit 3]
+14. Explain Armstrong's axioms and compute a sample attribute closure. (6) [Unit 4]
+15. Explain the states of a transaction with a diagram. (6) [Unit 5]
+
+SECTION C - 5 x 10 = 50
+
+16. Explain the overall architecture of a database system in detail. (10) [Unit 1]
+17. Explain the entity-relationship model and draw an ER diagram for a hospital. (10) [Unit 2]
+18. Explain DDL, DML and DCL commands in SQL with examples. (10) [Unit 3]
+19. Explain normalization and its different normal forms with examples. (10) [Unit 4]
+20. Explain lock-based concurrency control protocols in detail. (10) [Unit 5]

@@ -1,0 +1,89 @@
+import axios from "axios";
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE || "/api",
+  // Question generation runs a local LLM sequentially per pattern slot -
+  // a full 20-question paper can take several minutes on CPU-only hardware.
+  timeout: 1800000, // 30 minutes
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+api.interceptors.response.use(
+  (r) => r,
+  (error) => {
+    if (error.response?.status === 401 && !location.pathname.startsWith("/login")) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      location.href = "/login";
+    }
+    return Promise.reject(error);
+  },
+);
+
+export default api;
+
+// ---- typed helpers ----
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "lecturer";
+  active?: boolean;
+  created_at?: string;
+}
+
+export interface Subject {
+  id: string;
+  name: string;
+  code: string;
+  semester: number;
+  units: { unit: number; title: string }[];
+  selected_pattern?: Pattern;
+  pattern_analysis?: any;
+  counts?: Record<string, number>;
+}
+
+export interface PatternSection {
+  section: string;
+  count: number;
+  marks_each: number;
+  total: number;
+}
+export interface Pattern {
+  name: string;
+  sections: PatternSection[];
+  total_marks: number;
+}
+
+export interface Question {
+  index?: number;
+  section?: string;
+  question: string;
+  unit: number;
+  topic: string;
+  marks: number;
+  difficulty: string;
+  bloom_level: string;
+  question_type: string;
+  source?: string[];
+  source_context?: string;
+  similarity_score?: number;
+  duplicate?: boolean;
+  matched_question?: string | null;
+  answer?: string;
+  answer_support?: number;
+}
+
+export const authApi = {
+  login: (email: string, password: string) =>
+    api.post("/auth/login", { email, password }),
+  register: (name: string, email: string, password: string) =>
+    api.post("/auth/register", { name, email, password }),
+  me: () => api.get("/auth/me"),
+  logout: () => api.post("/auth/logout"),
+};

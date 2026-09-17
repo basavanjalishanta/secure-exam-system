@@ -1,0 +1,31 @@
+# --- secrets ---
+.env
+*.env
+!.env.example
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# --- node ---
+node_modules/
+frontend/dist/
+*.log
+
+# --- app data ---
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/encrypted_papers/*
+!backend/encrypted_papers/.gitkeep
+
+# --- editor / os ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
