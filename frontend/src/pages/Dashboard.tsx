@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { Bar, PageHeader, Spinner, StatCard } from "../components/ui";
 import { useAuth } from "../hooks/useAuth";
@@ -16,7 +17,7 @@ export default function Dashboard() {
   }, []);
 
   if (err) return <p className="text-sm text-red-600">{err}</p>;
-  if (!data) return <Spinner label="Loading dashboard…" />;
+  if (!data) return <Spinner label="Loading dashboard..." />;
 
   const s = data.stats;
   return (
@@ -27,6 +28,56 @@ export default function Dashboard() {
         <StatCard title="Total Questions" value={s.total_questions} hint="question bank" />
         <StatCard title="Generated Papers" value={s.generated_papers} />
         <StatCard title="Uploaded Documents" value={s.uploaded_documents} />
+      </div>
+
+      {/* Quick Workflow Action Shortcuts */}
+      <div className="mt-6 rounded-xl border border-blue-200 bg-blue-50/50 p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-blue-900">Lecturer Examination Workflow</h3>
+        <p className="mt-0.5 text-xs text-blue-700">Automated end-to-end question paper lifecycle:</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
+          <Link
+            to="/upload"
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm hover:border-blue-500 hover:shadow"
+          >
+            <span className="text-xs font-bold text-blue-600">Step 1</span>
+            <span className="mt-1 text-xs font-medium text-slate-800">Upload Syllabus</span>
+          </Link>
+          <Link
+            to="/lesson-plan"
+            className="flex flex-col items-center justify-center rounded-lg border border-blue-300 bg-white p-3 text-center shadow-sm ring-2 ring-blue-400 hover:border-blue-600 hover:shadow"
+          >
+            <span className="text-xs font-bold text-blue-600">Step 2</span>
+            <span className="mt-1 text-xs font-semibold text-blue-900">Lesson Plan</span>
+          </Link>
+          <Link
+            to="/pattern"
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm hover:border-blue-500 hover:shadow"
+          >
+            <span className="text-xs font-bold text-blue-600">Step 3</span>
+            <span className="mt-1 text-xs font-medium text-slate-800">Exam Pattern</span>
+          </Link>
+          <Link
+            to="/generate"
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm hover:border-blue-500 hover:shadow"
+          >
+            <span className="text-xs font-bold text-blue-600">Step 4</span>
+            <span className="mt-1 text-xs font-medium text-slate-800">AI Generation</span>
+          </Link>
+          <Link
+            to="/review"
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm hover:border-blue-500 hover:shadow"
+          >
+            <span className="text-xs font-bold text-blue-600">Step 5</span>
+            <span className="mt-1 text-xs font-medium text-slate-800">Review &amp; Edit</span>
+          </Link>
+          <Link
+            to="/paper"
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm hover:border-blue-500 hover:shadow"
+          >
+            <span className="text-xs font-bold text-blue-600">Step 6</span>
+            <span className="mt-1 text-xs font-medium text-slate-800">Export &amp; Encrypt</span>
+          </Link>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
@@ -56,7 +107,9 @@ export default function Dashboard() {
                 </span>
               </li>
             ))}
-            {data.recent_activity.length === 0 && <li className="text-slate-400">No activity yet.</li>}
+            {data.recent_activity.length === 0 && (
+              <li className="text-slate-400">No activity yet.</li>
+            )}
           </ul>
         </div>
         <div className="card">

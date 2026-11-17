@@ -4,7 +4,7 @@ import { authApi, User } from "../services/api";
 interface AuthState {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;\n  verifyOtp: (email: string, otp: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -49,7 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       login: async (email, password) => {
-        const r = await authApi.login(email, password);
+        await authApi.login(email, password);
+      },
+      verifyOtp: async (email, otp) => {
+        const r = await authApi.verifyOtp(email, otp);
         persist(r.data.token, r.data.user);
       },
       register: async (name, email, password) => {

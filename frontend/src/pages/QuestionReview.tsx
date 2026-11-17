@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api, { Question } from "../services/api";
 import { Alert, PageHeader } from "../components/ui";
@@ -8,6 +8,20 @@ export default function QuestionReview() {
   const navigate = useNavigate();
   const { subjectId, questions, setQuestions } = useWorkflow();
   const [editing, setEditing] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (questions.length === 0) {
+      api
+        .get(`/questions/latest${subjectId ? `?subject_id=${subjectId}` : ""}`)
+        .then((r) => {
+          if (r.data.questions && r.data.questions.length > 0) {
+            setQuestions(r.data.questions);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [subjectId, questions.length]);
+
   const [busyIdx, setBusyIdx] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
 
@@ -49,7 +63,7 @@ export default function QuestionReview() {
     <div>
       <PageHeader
         title="Question Review"
-        subtitle={`${questions.length} questions · ${total} marks — edit, regenerate or delete`}
+        subtitle={`${questions.length} questions \u00b7 ${total} marks \u2013 edit, regenerate or delete`}
         actions={
           <div className="flex gap-2">
             <button className="btn-ghost" onClick={() => navigate("/answers")}>
@@ -86,6 +100,10 @@ export default function QuestionReview() {
                   <Meta label="Difficulty" value={q.difficulty} onEdit={editing === i ? (v) => update(i, { difficulty: v }) : undefined} />
                   <Meta label="Bloom" value={q.bloom_level} onEdit={editing === i ? (v) => update(i, { bloom_level: v }) : undefined} />
                   <span className="badge bg-slate-100 text-slate-600">{q.question_type}</span>
+                  {q.bl && <span className="badge bg-purple-50 text-purple-700">BL: {q.bl}</span>}
+                  {q.co && <span className="badge bg-blue-50 text-blue-700">CO: {q.co}</span>}
+                  {q.po && <span className="badge bg-green-50 text-green-700">PO: {q.po}</span>}
+                  {q.pso && <span className="badge bg-orange-50 text-orange-700">PSO: {q.pso}</span>}
                   <span
                     className={`badge ${
                       (q.similarity_score ?? 0) > 0.8
@@ -93,7 +111,7 @@ export default function QuestionReview() {
                         : "bg-green-100 text-green-700"
                     }`}
                   >
-                    similarity {q.similarity_score?.toFixed(2) ?? "—"}
+                    sim {q.similarity_score?.toFixed(2) ?? "-"}
                   </span>
                 </div>
                 {q.source && q.source.length > 0 && (
@@ -101,7 +119,7 @@ export default function QuestionReview() {
                 )}
                 {q.duplicate && (
                   <p className="mt-1 text-xs text-amber-700">
-                    ⚠ Near-duplicate of: {q.matched_question}
+                    &#9888; Near-duplicate of: {q.matched_question}
                   </p>
                 )}
               </div>
@@ -118,7 +136,7 @@ export default function QuestionReview() {
                 disabled={busyIdx === i}
                 onClick={() => regenerate(i)}
               >
-                {busyIdx === i ? "Regenerating…" : "Regenerate"}
+                {busyIdx === i ? "Regenerating..." : "Regenerate"}
               </button>
               <button className="btn-danger !py-1 !text-xs" onClick={() => remove(i)}>
                 Delete

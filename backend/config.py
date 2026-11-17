@@ -4,7 +4,11 @@ from datetime import timedelta
 
 from dotenv import load_dotenv
 
-load_dotenv()
+backend_env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(backend_env):
+    load_dotenv(backend_env, override=True)
+else:
+    load_dotenv()
 
 
 def _get(key: str, default=None, required: bool = False):
@@ -28,6 +32,14 @@ class Config:
     JWT_ALGORITHM = "HS256"
     JWT_ACCESS_TTL = timedelta(hours=int(_get("JWT_ACCESS_TTL_HOURS", "12")))
 
+    # --- Email-based second factor (Gmail App Password / SMTP) ---
+    SMTP_HOST = _get("SMTP_HOST", "smtp.gmail.com")
+    SMTP_PORT = int(_get("SMTP_PORT", "465"))
+    SMTP_USERNAME = _get("SMTP_USERNAME", "")
+    SMTP_PASSWORD = _get("SMTP_PASSWORD", "")
+    SMTP_FROM_EMAIL = _get("SMTP_FROM_EMAIL", "") or SMTP_USERNAME
+    EMAIL_OTP_TTL_MINUTES = int(_get("EMAIL_OTP_TTL_MINUTES", "5"))
+
     # --- AES-256 encryption for generated papers ---
     # 32-byte key, provided base64 or hex encoded in the env.
     AES_KEY_B64 = _get("AES_KEY_B64", "")
@@ -43,23 +55,37 @@ class Config:
 
     # --- AI provider abstraction ---
     # AI_PROVIDER = "mock" (dev/testing) | "llama" (local LLaMA-compatible endpoint)
-    AI_PROVIDER = _get("AI_PROVIDER", "mock")
+    # --- AI provider abstraction ---
+    # AI_PROVIDER = "groq" | "grok" | "ollama" | "mock"
+    AI_PROVIDER = _get("AI_PROVIDER", "groq").lower()
+
+    # Cloud LLM (Groq / Grok / OpenAI-compatible endpoint)
+    GROQ_API_KEY = _get("GROQ_API_KEY", "")
+    GROK_API_KEY = _get("GROK_API_KEY", "")
+    CLOUD_API_KEY = _get("CLOUD_API_KEY", "") or GROQ_API_KEY or GROK_API_KEY
+
+    GROQ_BASE_URL = _get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    GROK_BASE_URL = _get("GROK_BASE_URL", "https://api.x.ai/v1")
+    CLOUD_BASE_URL = _get("CLOUD_BASE_URL", "") or (GROK_BASE_URL if "grok" in AI_PROVIDER else GROQ_BASE_URL)
+
+    GROQ_MODEL = _get("GROQ_MODEL", "openai/gpt-oss-120b")
+    GROK_MODEL = _get("GROK_MODEL", "grok-beta")
+    CLOUD_MODEL = _get("CLOUD_MODEL", "") or (GROK_MODEL if "grok" in AI_PROVIDER else GROQ_MODEL)
+    CLOUD_TIMEOUT = int(_get("CLOUD_TIMEOUT", "60"))
+
+    # Local Ollama
     LLAMA_BASE_URL = _get("LLAMA_BASE_URL", "http://localhost:11434/v1")
     LLAMA_API_KEY = _get("LLAMA_API_KEY", "not-needed-for-local")
-    LLAMA_MODEL = _get("LLAMA_MODEL", "llama3")
-    LLAMA_TIMEOUT = int(_get("LLAMA_TIMEOUT", "120"))
-    # How many pattern slots to generate concurrently against the local LLM.
-    # Ollama can genuinely overlap several requests on one GPU/model; tune
-    # this down on weaker hardware if generations start failing/timing out.
-    LLM_CONCURRENCY = int(_get("LLM_CONCURRENCY", "4"))
-
-    # --- Embeddings abstraction ---
+    LLAMA_MODEL = _get("LLAMA_MODEL", "llama3.2:1b")
+    LLAMA_TIMEOUT = int(_get("LLAMA_TIMEOUT", "180"))
+    LLAMA_TEMPERATURE = float(_get("LLAMA_TEMPERATURE", "0.2"))
+    LLM_CONCURRENCY = int(_get("LLM_CONCURRENCY", "1"))
     # EMBEDDING_PROVIDER = "hash" (deterministic local fallback, no deps)
     #                    | "sentence-transformers" (local model)
     #                    | "llama" (embeddings endpoint of the local server)
-    EMBEDDING_PROVIDER = _get("EMBEDDING_PROVIDER", "hash")
-    EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    EMBEDDING_DIM = int(_get("EMBEDDING_DIM", "384"))
+    EMBEDDING_PROVIDER = _get("EMBEDDING_PROVIDER", "llama")
+    EMBEDDING_MODEL = _get("EMBEDDING_MODEL", "nomic-embed-text")
+    EMBEDDING_DIM = int(_get("EMBEDDING_DIM", "768"))
 
     # --- RAG ---
     CHUNK_SIZE = int(_get("CHUNK_SIZE", "900"))

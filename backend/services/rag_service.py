@@ -48,10 +48,26 @@ def _sentence_transformer_embedding(texts: list[str]) -> list[list[float]]:
     return [v.tolist() for v in _ST_MODEL.encode(texts, normalize_embeddings=True)]
 
 
-def _llama_embedding(texts: list[str]) -> list[list[float]]:
-    from openai import OpenAI
+_LLAMA_CLIENT = None
 
-    client = OpenAI(base_url=config.LLAMA_BASE_URL, api_key=config.LLAMA_API_KEY)
+
+def _get_llama_client():
+    global _LLAMA_CLIENT
+    if _LLAMA_CLIENT is None:
+        from openai import OpenAI
+
+        _LLAMA_CLIENT = OpenAI(
+            base_url=config.LLAMA_BASE_URL,
+            api_key=config.LLAMA_API_KEY,
+            timeout=config.LLAMA_TIMEOUT,
+        )
+    return _LLAMA_CLIENT
+
+
+def _llama_embedding(texts: list[str]) -> list[list[float]]:
+    if not texts:
+        return []
+    client = _get_llama_client()
     resp = client.embeddings.create(model=config.EMBEDDING_MODEL, input=texts)
     return [d.embedding for d in resp.data]
 
@@ -161,10 +177,12 @@ def is_duplicate(subject_id: str, question_text: str, extra_pool: list[str] | No
         if s > best_score:
             best_score, matched = s, row["question"]
 
-    for prev in extra_pool or []:
-        s = cosine(q_emb, embed_text(prev))
-        if s > best_score:
-            best_score, matched = s, prev
+    if extra_pool:
+        extra_embs = embed_texts(extra_pool)
+        for prev, emb in zip(extra_pool, extra_embs):
+            s = cosine(q_emb, emb)
+            if s > best_score:
+                best_score, matched = s, prev
 
     return best_score >= config.DUPLICATE_THRESHOLD, round(best_score, 4), matched
 

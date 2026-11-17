@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import SubjectManagement from "./pages/SubjectManagement";
 import UploadMaterials from "./pages/UploadMaterials";
+import LessonPlan from "./pages/LessonPlan";
 import PreviousPaperAnalysis from "./pages/PreviousPaperAnalysis";
 import PatternSelection from "./pages/PatternSelection";
 import QuestionGeneration from "./pages/QuestionGeneration";
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/audit" element={<ProtectedRoute roles={["admin"]}><AuditLogs /></ProtectedRoute>} />
         <Route path="/subjects" element={<SubjectManagement />} />
         <Route path="/upload" element={<UploadMaterials />} />
+        <Route path="/lesson-plan" element={<LessonPlan />} />
         <Route path="/analysis" element={<PreviousPaperAnalysis />} />
         <Route path="/pattern" element={<PatternSelection />} />
         <Route path="/generate" element={<QuestionGeneration />} />

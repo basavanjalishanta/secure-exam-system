@@ -48,6 +48,14 @@ def generated_questions():
     return get_db()["generated_questions"]
 
 
+def generation_jobs():
+    return get_db()["generation_jobs"]
+
+
+def lesson_plans():
+    return get_db()["lesson_plans"]
+
+
 def answers():
     return get_db()["answers"]
 
@@ -65,11 +73,21 @@ def utcnow():
 
 
 def ensure_indexes():
-    users().create_index([("email", ASCENDING)], unique=True)
-    subjects().create_index([("code", ASCENDING)], unique=True)
-    documents().create_index([("subject_id", ASCENDING), ("type", ASCENDING)])
-    chunks().create_index([("subject_id", ASCENDING)])
-    question_bank().create_index([("subject_id", ASCENDING), ("unit", ASCENDING)])
-    question_bank().create_index([("question", TEXT)])
-    question_papers().create_index([("created_by", ASCENDING)])
-    audit_logs().create_index([("timestamp", ASCENDING)])
+    indexes = [
+        (users(), [("email", ASCENDING)], {"unique": True}),
+        (subjects(), [("code", ASCENDING)], {"unique": True}),
+        (documents(), [("subject_id", ASCENDING), ("type", ASCENDING)], {}),
+        (chunks(), [("subject_id", ASCENDING)], {}),
+        (question_bank(), [("subject_id", ASCENDING), ("unit", ASCENDING)], {}),
+        (question_bank(), [("question", TEXT)], {}),
+        (question_papers(), [("created_by", ASCENDING)], {}),
+        (audit_logs(), [("timestamp", ASCENDING)], {}),
+        (generation_jobs(), [("job_id", ASCENDING)], {"unique": True}),
+        (generation_jobs(), [("subject_id", ASCENDING), ("status", ASCENDING)], {}),
+        (lesson_plans(), [("subject_id", ASCENDING)], {}),
+    ]
+    for coll, keys, kwargs in indexes:
+        try:
+            coll.create_index(keys, **kwargs)
+        except Exception as e:
+            print(f"Warning: Could not create index on {coll.name}: {e}")

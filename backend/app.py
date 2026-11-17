@@ -1,4 +1,4 @@
-"""Flask application entry point."""
+﻿"""Flask application entry point."""
 import os
 
 from flask import Flask, jsonify
@@ -34,9 +34,10 @@ def create_app() -> Flask:
     from routes.subjects import bp as subjects_bp
     from routes.users import bp as users_bp
     from routes.validation import bp as validation_bp
+    from routes.lesson_plans import bp as lesson_plans_bp
 
     for bp in (auth_bp, users_bp, subjects_bp, documents_bp, pattern_bp, questions_bp,
-               answers_bp, validation_bp, papers_bp, qbank_bp, misc_bp):
+               answers_bp, validation_bp, papers_bp, qbank_bp, misc_bp, lesson_plans_bp):
         app.register_blueprint(bp)
 
     @app.get("/api/health")

@@ -279,3 +279,23 @@ access control → audit).
 
 `python seed.py` loads **Database Management Systems (BCS401)** with 5 units and two
 previous question papers (May 2023, Nov 2022), so the system is testable immediately.
+
+
+## Email two-step login verification
+
+Login now uses two factors: (1) the user's email and password, then (2) a six-digit OTP sent to that email. The API issues the JWT only after the OTP is verified. OTPs expire after five minutes and are limited to five incorrect attempts.
+
+Configure Gmail SMTP in `backend/.env` (do not use your normal Gmail password):
+
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_USERNAME=yourgmail@gmail.com
+SMTP_PASSWORD=your-16-character-google-app-password
+SMTP_FROM_EMAIL=yourgmail@gmail.com
+EMAIL_OTP_TTL_MINUTES=5
+```
+
+To create a Gmail App Password, enable 2-Step Verification on the Google account, then open Google Account > Security > 2-Step Verification > App passwords. Generate an app password and paste it into `SMTP_PASSWORD` (remove spaces). App passwords may not be available for some managed or protected Google accounts.
+
+Restart the Flask backend after editing `backend/.env`. During login, enter the password first, then enter the code received in the registered email inbox (check Spam/Junk too). If mail delivery fails, verify the SMTP username, App Password, and outbound SMTP access. The OTP endpoint is `POST /api/auth/verify-otp`.

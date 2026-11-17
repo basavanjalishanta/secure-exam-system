@@ -58,6 +58,10 @@ export interface Pattern {
   name: string;
   sections: PatternSection[];
   total_marks: number;
+  format?: string;
+  units?: number;
+  sub_parts?: number[];
+  marks_per_question?: number;
 }
 
 export interface Question {
@@ -70,6 +74,13 @@ export interface Question {
   difficulty: string;
   bloom_level: string;
   question_type: string;
+  full_question_num?: number;
+  sub_part?: string;
+  is_or?: boolean;
+  bl?: number;
+  co?: number;
+  po?: number;
+  pso?: number;
   source?: string[];
   source_context?: string;
   similarity_score?: number;
@@ -82,6 +93,8 @@ export interface Question {
 export const authApi = {
   login: (email: string, password: string) =>
     api.post("/auth/login", { email, password }),
+  verifyOtp: (email: string, otp: string) =>
+    api.post("/auth/verify-otp", { email, otp }),
   register: (name: string, email: string, password: string) =>
     api.post("/auth/register", { name, email, password }),
   me: () => api.get("/auth/me"),

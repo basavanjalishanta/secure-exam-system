@@ -60,9 +60,15 @@ export default function PatternSelection() {
                 </div>
                 <table className="mt-3 w-full text-sm">
                   <tbody>
-                    {p.sections.map((s) => (
+                    {p.sub_parts && (
+                      <tr className="border-b border-slate-100 font-medium text-brand-600">
+                        <td className="py-1">Sub-parts per Q:</td>
+                        <td className="py-1 text-right">{p.sub_parts.join(" + ")} marks (with OR choice)</td>
+                      </tr>
+                    )}
+                    {(p.sections || []).map((s) => (
                       <tr key={s.section} className="border-b border-slate-100">
-                        <td className="py-1">Section {s.section}</td>
+                        <td className="py-1">{s.section.startsWith("Unit") ? s.section : `Section ${s.section}`}</td>
                         <td className="py-1 text-right">
                           {s.count} × {s.marks_each} = {s.total}
                         </td>

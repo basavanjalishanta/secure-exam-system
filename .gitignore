@@ -20,10 +20,13 @@ frontend/dist/
 *.log
 
 # --- app data ---
+backend/mongo-data/
+backend/data/seed_dump/
 backend/uploads/*
 !backend/uploads/.gitkeep
 backend/encrypted_papers/*
 !backend/encrypted_papers/.gitkeep
+backend/test_*.pdf
 
 # --- editor / os ---
 .vscode/

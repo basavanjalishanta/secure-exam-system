@@ -144,17 +144,99 @@ def seed_pattern(subject):
           f"-> selected '{pattern['name']}' ({pattern['total_marks']} marks)")
 
 
+import shutil
+from bson import json_util
+
+DUMP_DIR = os.path.join(os.path.dirname(__file__), "data", "seed_dump")
+COLLECTIONS_DUMP = os.path.join(DUMP_DIR, "collections")
+UPLOADS_DUMP = os.path.join(DUMP_DIR, "uploads")
+ENCRYPTED_DUMP = os.path.join(DUMP_DIR, "encrypted_papers")
+
+UPLOADS_DEST = os.path.join(os.path.dirname(__file__), "uploads")
+ENCRYPTED_DEST = os.path.join(os.path.dirname(__file__), "encrypted_papers")
+
+
+def restore_dump():
+    if not os.path.exists(COLLECTIONS_DUMP):
+        return False
+    
+    files = [f for f in os.listdir(COLLECTIONS_DUMP) if f.endswith(".json")]
+    if not files:
+        return False
+
+    print(f"Restoring database snapshot from {COLLECTIONS_DUMP}...")
+    db_obj = db.get_db()
+    
+    total_docs = 0
+    for fname in files:
+        coll_name = fname[:-5]
+        json_path = os.path.join(COLLECTIONS_DUMP, fname)
+        with open(json_path, "r", encoding="utf-8") as fh:
+            docs = json_util.loads(fh.read())
+        
+        if docs:
+            # If collection already has data and --reset wasn't run, avoid duplicate keys
+            existing_ids = set(doc["_id"] for doc in db_obj[coll_name].find({}, {"_id": 1}))
+            new_docs = [d for d in docs if d["_id"] not in existing_ids]
+            if new_docs:
+                db_obj[coll_name].insert_many(new_docs)
+                print(f"  * {coll_name}: restored {len(new_docs)} documents")
+                total_docs += len(new_docs)
+            else:
+                print(f"  * {coll_name}: already up to date ({len(docs)} documents present)")
+        else:
+            print(f"  * {coll_name}: 0 documents in dump")
+
+    # Restore uploaded files
+    os.makedirs(UPLOADS_DEST, exist_ok=True)
+    if os.path.exists(UPLOADS_DUMP):
+        f_count = 0
+        for fname in os.listdir(UPLOADS_DUMP):
+            src = os.path.join(UPLOADS_DUMP, fname)
+            dest = os.path.join(UPLOADS_DEST, fname)
+            if os.path.isfile(src) and not os.path.exists(dest):
+                shutil.copy2(src, dest)
+                f_count += 1
+        print(f"  * Uploaded files: restored {f_count} missing files")
+
+    # Restore encrypted papers
+    os.makedirs(ENCRYPTED_DEST, exist_ok=True)
+    if os.path.exists(ENCRYPTED_DUMP):
+        e_count = 0
+        for fname in os.listdir(ENCRYPTED_DUMP):
+            src = os.path.join(ENCRYPTED_DUMP, fname)
+            dest = os.path.join(ENCRYPTED_DEST, fname)
+            if os.path.isfile(src) and not os.path.exists(dest):
+                shutil.copy2(src, dest)
+                e_count += 1
+        print(f"  * Encrypted papers: restored {e_count} missing files")
+
+    return True
+
+
 def main():
+    if "--dump" in sys.argv:
+        from export_db import export_all
+        export_all()
+        return
+
     if "--reset" in sys.argv:
         reset()
+    
     db.ensure_indexes()
-    print(f"Seeding database '{config.MONGO_DB_NAME}' (AI provider: {config.AI_PROVIDER})")
-    seed_users()
-    subject = seed_subject()
-    seed_documents(subject)
-    seed_pattern(subject)
+
+    if restore_dump():
+        print("\nSnapshot restoration complete!")
+    else:
+        print(f"Seeding database '{config.MONGO_DB_NAME}' (AI provider: {config.AI_PROVIDER})")
+        seed_users()
+        subject = seed_subject()
+        seed_documents(subject)
+        seed_pattern(subject)
+    
     print("\nDone. Start the backend with:  flask --app app run  (or python app.py)")
 
 
 if __name__ == "__main__":
     main()
+

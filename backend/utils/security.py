@@ -46,6 +46,10 @@ def _extract_token() -> str | None:
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         return auth.split(" ", 1)[1].strip()
+    # Also support query parameter token (for direct browser PDF exports / downloads)
+    token_param = request.args.get("token")
+    if token_param:
+        return token_param.strip()
     return None
 
 

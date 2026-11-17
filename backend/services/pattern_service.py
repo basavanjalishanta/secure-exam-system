@@ -2,15 +2,35 @@
 import re
 from collections import Counter
 
-# question line like:  "1. a) Explain ... (6)"  or  "Q5 Define ... [2 marks] [Unit 3]"
+# Question lines vary substantially after PDF extraction. In particular, VTU
+# papers often extract as ``01 a) Question text 6`` (with no brackets around
+# the marks) and wrap a single question across several lines.
 _Q_LINE_RE = re.compile(
-    r"^\s*(?:Q\.?\s*)?(\d{1,2})[.)]?\s*(?:([a-e])[.)])?\s*(.+?)\s*"
-    r"[\[(]\s*(\d{1,2})\s*(?:marks?|m)?\s*[\])]\s*"
-    r"(?:\[[^\]]*\]\s*)?$",
+    r"^\s*(?:Q(?:uestion)?\.?\s*)?(?P<number>\d{1,2})\s*[.)-]?\s*"
+    r"(?:\(?[a-e]\)?[.)]\s*)?(?P<text>.+?)\s*"
+    r"(?:"
+    r"(?:\[\s*|\(\s*)(?P<bracket_marks>\d{1,2})\s*(?:marks?|m)?\s*(?:\]|\))"
+    r"|\s+(?P<plain_marks>\d{1,2})"
+    r")"
+    r"(?:\s*\[?\s*(?:unit|module)\s*[-:]?\s*\d+\s*\]?)?\s*$",
     re.IGNORECASE,
 )
 _SECTION_RE = re.compile(r"^\s*(?:section|part)\s*[-:]?\s*([A-D])\b.*$", re.IGNORECASE)
 _UNIT_HINT_RE = re.compile(r"\bunit\s*[-:]?\s*(\d)\b", re.IGNORECASE)
+_QUESTION_START_RE = re.compile(
+    r"^\s*(?:Q(?:uestion)?\.?\s*)?\d{1,2}\s*[.)-]?\s+(?:\(?[a-e]\)?[.)]\s+)?"
+    r"|^\s*\(?[a-e]\)?[.)]\s+",
+    re.IGNORECASE,
+)
+_QUESTION_NUMBER_RE = re.compile(
+    r"^\s*(?:Q(?:uestion)?\.?\s*)?(\d{1,2})\b",
+    re.IGNORECASE,
+)
+_TRAILING_MARK_RE = re.compile(
+    r"(?:[\[(]\s*\d{1,2}\s*(?:marks?|m)?\s*[\])]|\s+\d{1,2})\s*$",
+    re.IGNORECASE,
+)
+_NON_MARK_NUMBER_RE = re.compile(r"\b(?:by|of|to|at|for)\s+\d{1,2}\s*$", re.IGNORECASE)
 
 _DIFFICULTY_VERBS = {
     "Easy": ["define", "list", "state", "name", "what is", "write short"],
@@ -77,7 +97,35 @@ def analyze_papers(texts: list[str]) -> dict:
 def _parse_one(text: str):
     questions, sections = [], []
     current_section = None
+    current_question_number: str | None = None
+    pending: list[str] = []
+
+    def flush_pending():
+        """Parse one logical question assembled from wrapped PDF lines."""
+        nonlocal pending
+        if not pending:
+            return
+        joined = " ".join(pending)
+        pending = []
+        qm = _Q_LINE_RE.match(joined)
+        if not qm:
+            return
+        qtext = qm.group("text").strip()
+        marks = int(qm.group("bracket_marks") or qm.group("plain_marks"))
+        um = _UNIT_HINT_RE.search(joined)
+        questions.append(
+            {
+                "text": qtext,
+                "marks": marks,
+                "section": current_section,
+                "unit": int(um.group(1)) if um else _guess_unit(qtext),
+                "difficulty": _classify(qtext, _DIFFICULTY_VERBS, "Medium"),
+                "type": _classify(qtext, _TYPE_HINTS, "Theory"),
+            }
+        )
+
     for line in text.splitlines():
+        line = line.strip()
         sm = _SECTION_RE.match(line)
         if sm:
             current_section = sm.group(1).upper()
@@ -92,21 +140,28 @@ def _parse_one(text: str):
                     }
                 )
             continue
-        qm = _Q_LINE_RE.match(line)
-        if qm:
-            qtext = qm.group(3).strip()
-            marks = int(qm.group(4))
-            um = _UNIT_HINT_RE.search(line)
-            questions.append(
-                {
-                    "text": qtext,
-                    "marks": marks,
-                    "section": current_section,
-                    "unit": int(um.group(1)) if um else _guess_unit(qtext),
-                    "difficulty": _classify(qtext, _DIFFICULTY_VERBS, "Medium"),
-                    "type": _classify(qtext, _TYPE_HINTS, "Theory"),
-                }
-            )
+        if _QUESTION_START_RE.match(line):
+            flush_pending()
+            number_match = _QUESTION_NUMBER_RE.match(line)
+            if number_match:
+                current_question_number = number_match.group(1)
+                pending = [line]
+            elif current_question_number:
+                # PDF extractors commonly put only the first sub-question's
+                # number on the page: "01 a) ...", then "b) ...", "c) ...".
+                # Reattach that number so every sub-question is parsed.
+                pending = [f"{current_question_number} {line}"]
+            else:
+                pending = [line]
+        elif pending:
+            pending.append(line)
+
+        # A trailing mark completes the question. Flushing here prevents
+        # following BL/CO/PO metadata and page footers from being included.
+        if (pending and _TRAILING_MARK_RE.search(line)
+                and not _NON_MARK_NUMBER_RE.search(line)):
+            flush_pending()
+    flush_pending()
     return questions, sections
 
 
@@ -119,6 +174,24 @@ def _dominant_sections(structures: list[list[dict]]):
 
 
 def suggest_pattern(marks_counter: Counter, structures: list[list[dict]]) -> dict:
+    # If dominant marks indicate a 6/6/8 or 4/8/8 or 10/10 structure, suggest VTU pattern
+    # e.g., if 6, 8, 10, 4 are most frequent marks
+    top_marks = [m for m, _ in marks_counter.most_common(5) if m > 2]
+    # Check total questions found to infer if this was an internal exam (~4-12 questions) or 100-mark semester exam
+    total_q_count = sum(marks_counter.values())
+    if total_q_count <= 14:
+        # Internal / CIE pattern
+        return default_patterns()[3]  # CIE 50 Marks (6+6+8)
+
+    if top_marks:
+        # Check if 6 and 8 are present
+        if 6 in top_marks and 8 in top_marks:
+            return default_patterns()[0]  # VTU 6+6+8
+        elif 4 in top_marks and 8 in top_marks:
+            return default_patterns()[1]  # VTU 4+8+8
+        elif 10 in top_marks:
+            return default_patterns()[2]  # VTU 10+10
+
     if structures:
         sec = _dominant_sections(structures)
         if sec:
@@ -127,36 +200,108 @@ def suggest_pattern(marks_counter: Counter, structures: list[list[dict]]) -> dic
                 "sections": sec,
                 "total_marks": sum(s["total"] for s in sec),
             }
-    # fall back to the classic 20 + 30 + 50 pattern
+    # default to VTU standard pattern
     return default_patterns()[0]
 
 
 def default_patterns() -> list[dict]:
     return [
         {
-            "name": "Standard 100 (2/6/10)",
+            "name": "VTU Standard 100 (6+6+8 per Unit, OR Choice)",
+            "format": "unit_or",
+            "units": 5,
+            "sub_parts": [6, 6, 8],
+            "marks_per_question": 20,
+            "total_marks": 100,
+            "exam_type": "Semester End Examination",
+            "sections": [
+                {"section": "Unit-I", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-II", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-III", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-IV", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-V", "count": 2, "marks_each": 20, "total": 20},
+            ],
+        },
+        {
+            "name": "VTU Standard 100 (4+8+8 per Unit, OR Choice)",
+            "format": "unit_or",
+            "units": 5,
+            "sub_parts": [4, 8, 8],
+            "marks_per_question": 20,
+            "total_marks": 100,
+            "exam_type": "Semester End Examination",
+            "sections": [
+                {"section": "Unit-I", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-II", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-III", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-IV", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-V", "count": 2, "marks_each": 20, "total": 20},
+            ],
+        },
+        {
+            "name": "VTU Standard 100 (10+10 per Unit, OR Choice)",
+            "format": "unit_or",
+            "units": 5,
+            "sub_parts": [10, 10],
+            "marks_per_question": 20,
+            "total_marks": 100,
+            "exam_type": "Semester End Examination",
+            "sections": [
+                {"section": "Unit-I", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-II", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-III", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-IV", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-V", "count": 2, "marks_each": 20, "total": 20},
+            ],
+        },
+        {
+            "name": "CIE / Internals 50 Marks (2 Units, 6+6+8 OR Choice, Q1-Q4)",
+            "format": "unit_or",
+            "units": 2,
+            "sub_parts": [6, 6, 8],
+            "marks_per_question": 20,
+            "total_marks": 50,
+            "exam_type": "Continuous Internal Evaluation (CIE)",
+            "sections": [
+                {"section": "Unit-I", "count": 2, "marks_each": 25, "total": 25},
+                {"section": "Unit-II", "count": 2, "marks_each": 25, "total": 25},
+            ],
+        },
+        {
+            "name": "CIE / Internals 50 Marks (2 Units, 10+15 OR Choice, Q1-Q4)",
+            "format": "unit_or",
+            "units": 2,
+            "sub_parts": [10, 15],
+            "marks_per_question": 25,
+            "total_marks": 50,
+            "exam_type": "Continuous Internal Evaluation (CIE)",
+            "sections": [
+                {"section": "Unit-I", "count": 2, "marks_each": 25, "total": 25},
+                {"section": "Unit-II", "count": 2, "marks_each": 25, "total": 25},
+            ],
+        },
+        {
+            "name": "CIE / Internals 50 Marks (5 Units, 10 Marks each with OR)",
+            "format": "unit_or",
+            "units": 5,
+            "sub_parts": [5, 5],
+            "marks_per_question": 10,
+            "total_marks": 50,
+            "exam_type": "Continuous Internal Evaluation (CIE)",
+            "sections": [
+                {"section": "Unit-I", "count": 2, "marks_each": 10, "total": 10},
+                {"section": "Unit-II", "count": 2, "marks_each": 10, "total": 10},
+                {"section": "Unit-III", "count": 2, "marks_each": 10, "total": 10},
+                {"section": "Unit-IV", "count": 2, "marks_each": 10, "total": 10},
+                {"section": "Unit-V", "count": 2, "marks_each": 10, "total": 10},
+            ],
+        },
+        {
+            "name": "Standard 100 (2/6/10 Sectional)",
             "sections": [
                 {"section": "A", "count": 10, "marks_each": 2, "total": 20},
                 {"section": "B", "count": 5, "marks_each": 6, "total": 30},
                 {"section": "C", "count": 5, "marks_each": 10, "total": 50},
-            ],
-            "total_marks": 100,
-        },
-        {
-            "name": "10+5+5 (2/8/12)",
-            "sections": [
-                {"section": "A", "count": 10, "marks_each": 2, "total": 20},
-                {"section": "B", "count": 5, "marks_each": 8, "total": 40},
-                {"section": "C", "count": 5, "marks_each": 8, "total": 40},
-            ],
-            "total_marks": 100,
-        },
-        {
-            "name": "8+6+6 (2/5/10)",
-            "sections": [
-                {"section": "A", "count": 8, "marks_each": 2, "total": 16},
-                {"section": "B", "count": 6, "marks_each": 4, "total": 24},
-                {"section": "C", "count": 6, "marks_each": 10, "total": 60},
             ],
             "total_marks": 100,
         },
@@ -174,11 +319,49 @@ def default_patterns() -> list[dict]:
 def build_generation_plan(pattern: dict, units: list[int], unit_weights: dict | None = None) -> list[dict]:
     """Turn a pattern + unit weighting into per-question generation slots."""
     units = units or [1, 2, 3, 4, 5]
-    weights = _resolve_weights(units, unit_weights)
     slots: list[dict] = []
+
+    # Check if this is a VTU Unit-OR pattern
+    if pattern.get("format") == "unit_or" or "sub_parts" in pattern:
+        sub_parts = pattern.get("sub_parts") or [6, 6, 8]
+        sub_labels = ["a", "b", "c", "d", "e"]
+
+        for u_idx, u in enumerate(units):
+            fq_base = u_idx * 2 + 1  # 1, 3, 5, 7, 9
+
+            # Question group 1 (Main Question, e.g. Q01)
+            for sp_idx, marks in enumerate(sub_parts):
+                slots.append({
+                    "section": f"Unit-{u}",
+                    "unit": u,
+                    "marks": marks,
+                    "difficulty": _difficulty_for_marks(marks),
+                    "bloom_level": _bloom_for_marks(marks),
+                    "question_type": "Theory" if marks <= 2 else "Analytical" if marks >= 10 else "Application",
+                    "full_question_num": fq_base,
+                    "sub_part": sub_labels[sp_idx % len(sub_labels)],
+                    "is_or": False,
+                })
+
+            # Question group 2 (OR Question, e.g. Q02)
+            for sp_idx, marks in enumerate(sub_parts):
+                slots.append({
+                    "section": f"Unit-{u}",
+                    "unit": u,
+                    "marks": marks,
+                    "difficulty": _difficulty_for_marks(marks),
+                    "bloom_level": _bloom_for_marks(marks),
+                    "question_type": "Theory" if marks <= 2 else "Analytical" if marks >= 10 else "Application",
+                    "full_question_num": fq_base + 1,
+                    "sub_part": sub_labels[sp_idx % len(sub_labels)],
+                    "is_or": True,
+                })
+        return slots
+
+    weights = _resolve_weights(units, unit_weights)
     ui = 0
     order = _weighted_unit_order(units, weights)
-    for section in pattern["sections"]:
+    for section in pattern.get("sections", []):
         for _ in range(section["count"]):
             unit = order[ui % len(order)]
             ui += 1

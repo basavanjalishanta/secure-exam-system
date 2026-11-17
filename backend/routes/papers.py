@@ -1,4 +1,4 @@
-"""Question paper creation -> PDF -> AES-256 encryption -> secure storage/download.
+﻿"""Question paper creation -> PDF -> AES-256 encryption -> secure storage/download.
 
 The plaintext PDF is generated in memory, encrypted, and only the ciphertext is
 persisted. Downloads are decrypted on the fly for authorized users only.
@@ -73,7 +73,7 @@ def generate_paper():
         return jsonify({"error": "questions required"}), 400
 
     meta = data.get("meta") or {}
-    meta.setdefault("college_name", "University College of Engineering")
+    meta.setdefault("college_name", "Siddaganga Institute of Technology, Tumakuru - 572 103")
     meta.setdefault("exam_name", "End Semester Examination")
     meta.setdefault("subject_name", subject["name"])
     meta.setdefault("subject_code", subject["code"])
