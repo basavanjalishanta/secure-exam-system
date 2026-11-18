@@ -18,6 +18,7 @@ backend/.venv312/
 node_modules/
 frontend/dist/
 *.log
+*.tsbuildinfo
 
 # --- app data ---
 backend/mongo-data/

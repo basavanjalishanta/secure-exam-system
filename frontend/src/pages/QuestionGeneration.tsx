@@ -24,6 +24,7 @@ export default function QuestionGeneration() {
   const { subjectId, pattern, setPattern, setQuestions, setValidation } = useWorkflow();
   const [subject, setSubject] = useState<Subject | null>(null);
   const [units, setUnits] = useState<number[]>([]);
+  const [topicHints, setTopicHints] = useState<Record<number, string>>({});
   const [difficulty, setDifficulty] = useState("");
   const [bloom, setBloom] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,15 +34,42 @@ export default function QuestionGeneration() {
 
   const pollIntervalRef = useRef<any>(null);
 
-  const totalQuestions = pattern?.sections.reduce((a, s) => a + s.count, 0) ?? 0;
+  const isUnitOrPattern = pattern?.format === "unit_or" || Boolean(pattern?.sub_parts);
+  const requiredUnitCount = isUnitOrPattern ? pattern?.units : undefined;
+  const unitSelectionValid = requiredUnitCount
+    ? units.length === requiredUnitCount
+    : units.length > 0;
+  const totalQuestions = pattern
+    ? isUnitOrPattern
+      ? units.length * 2 * (pattern.sub_parts?.length || 3)
+      : pattern.sections.reduce((a, s) => a + s.count, 0)
+    : 0;
+  const totalMarks = pattern
+    ? isUnitOrPattern
+      ? units.length * (pattern.sub_parts || [6, 6, 8]).reduce((sum, marks) => sum + marks, 0)
+      : pattern.total_marks
+    : 0;
 
   function onSubject(s: Subject | null) {
     setSubject(s);
-    if (s) {
-      setUnits(s.units.map((u) => u.unit));
-      if (s.selected_pattern) setPattern(s.selected_pattern);
-    }
+    setTopicHints(
+      Object.fromEntries(
+        (s?.units || []).map((unit) => [
+          unit.unit,
+          /^unit\s*\d+$/i.test(unit.title.trim()) ? "" : unit.title,
+        ]),
+      ),
+    );
+    if (s?.selected_pattern) setPattern(s.selected_pattern);
+    else setPattern(null);
   }
+
+  useEffect(() => {
+    if (!subject) return;
+    const availableUnits = subject.units.map((u) => u.unit);
+    const count = pattern?.units ?? availableUnits.length;
+    setUnits(availableUnits.slice(0, count));
+  }, [subject?.id, pattern?.name, pattern?.units]);
 
   useEffect(() => {
     api.get("/health").then((r) => setProvider(r.data.ai_provider)).catch(() => {});
@@ -67,10 +95,12 @@ export default function QuestionGeneration() {
           clearInterval(pollIntervalRef.current);
           setBusy(false);
           setQuestions(job.questions);
-          // Wait 1.5 seconds so user sees 100% completion then navigate to review
-          setTimeout(() => {
-            navigate("/review");
-          }, 1500);
+          if (job.status === "completed") {
+            // Wait briefly so the user sees 100% completion before reviewing.
+            setTimeout(() => navigate("/review"), 1500);
+          } else {
+            setErr(job.errors[0] || "Some questions could not be generated.");
+          }
         } else if (job.status === "failed") {
           clearInterval(pollIntervalRef.current);
           setBusy(false);
@@ -96,9 +126,15 @@ export default function QuestionGeneration() {
         subject_id: subjectId,
         pattern,
         units,
+        topic_hints: Object.fromEntries(
+          Object.entries(topicHints)
+            .filter(([, topics]) => topics.trim())
+            .map(([unit, topics]) => [unit, topics.trim()]),
+        ),
         difficulty: difficulty || undefined,
         bloom_level: bloom || undefined,
       });
+      if (r.data.pattern) setPattern(r.data.pattern);
 
       const jobId = r.data.job_id;
       if (jobId) {
@@ -137,7 +173,7 @@ export default function QuestionGeneration() {
             <div>
               <p className="label">Examination Blueprint</p>
               <p className="text-sm text-slate-600">
-                {pattern.name} &mdash; {totalQuestions} questions, {pattern.total_marks} marks
+                {pattern.name} &mdash; {totalQuestions} questions, {totalMarks} marks
               </p>
               <div className="mt-1 flex flex-wrap gap-2">
                 {pattern.sections.map((s) => (
@@ -150,12 +186,24 @@ export default function QuestionGeneration() {
 
             <div>
               <p className="label">Units to include</p>
+              {requiredUnitCount && (
+                <p className="mb-2 text-xs text-slate-500">
+                  This pattern requires exactly {requiredUnitCount} units; {units.length} selected.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {subject.units.map((u) => (
                   <button
                     key={u.unit}
                     onClick={() => toggleUnit(u.unit)}
-                    disabled={busy}
+                    disabled={
+                      busy ||
+                      Boolean(
+                        requiredUnitCount &&
+                          !units.includes(u.unit) &&
+                          units.length >= requiredUnitCount,
+                      )
+                    }
                     className={`badge border px-3 py-1 ${
                       units.includes(u.unit)
                         ? "border-brand-500 bg-brand-50 text-brand-700"
@@ -166,6 +214,34 @@ export default function QuestionGeneration() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="label">Topics for selected units (optional, comma-separated)</p>
+              {subject.units
+                .filter((unit) => units.includes(unit.unit))
+                .map((unit) => (
+                  <div key={unit.unit}>
+                    <label className="mb-1 block text-xs text-slate-500">
+                      Unit {unit.unit} topics
+                    </label>
+                    <input
+                      className="input"
+                      value={topicHints[unit.unit] || ""}
+                      disabled={busy}
+                      placeholder="e.g. arrays, linked lists, stack operations"
+                      onChange={(e) =>
+                        setTopicHints((current) => ({
+                          ...current,
+                          [unit.unit]: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                ))}
+              <p className="text-xs text-slate-500">
+                Enter distinct syllabus concepts to guide question selection. Leave blank to use the uploaded notes.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -208,7 +284,7 @@ export default function QuestionGeneration() {
               <button
                 className="btn-primary"
                 onClick={generate}
-                disabled={busy || units.length === 0}
+                disabled={busy || !unitSelectionValid}
               >
                 {busy ? "Generating Paper..." : "Generate Questions"}
               </button>
@@ -245,12 +321,6 @@ export default function QuestionGeneration() {
                 </div>
 
                 {/* Timing estimate */}
-                {provider === "groq" && jobProgress && jobProgress.total_slots > 0 && (
-                  <p className="text-xs text-slate-400">
-                    Estimated time: ~{Math.ceil((jobProgress.total_slots - jobProgress.completed_count) * 17 / 60)} min remaining
-                    &nbsp;(Groq free tier: 1 question every ~17s due to rate limits)
-                  </p>
-                )}
               </div>
             )}
 
@@ -282,11 +352,11 @@ export default function QuestionGeneration() {
                 </span>
               </p>
               <p className="mt-2 text-xs text-slate-400">
-                {provider === "groq" || provider === "grok"
-                  ? "Cloud LLM (Groq free tier: ~17s/question due to 8K TPM limit)"
-                  : provider === "ollama"
+                {provider === "ollama" || provider === "llama"
                   ? "Local Ollama (Offline privacy-preserving execution)"
-                  : "Offline RAG deterministic composer"}
+                  : provider === "mock"
+                  ? "Offline RAG deterministic composer"
+                  : "Unsupported AI provider configuration"}
               </p>
             </div>
 
@@ -308,7 +378,7 @@ export default function QuestionGeneration() {
                   &#10003; <b>Incremental Persistence:</b> Saved per question
                 </li>
                 <li className="flex items-center gap-1.5">
-                  &#10003; <b>Rate-limit aware:</b> Auto-retry with backoff
+                  &#10003; <b>Bounded retries:</b> Failed slots are reported
                 </li>
               </ul>
             </div>

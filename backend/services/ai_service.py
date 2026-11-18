@@ -1,21 +1,9 @@
-"""AI service abstraction for Question Generation, Answer Keys, and Lesson Plans.
-
-Supported providers implementing the AIProvider interface:
-  * CloudProvider   -> Fast cloud LLM (Groq / Grok / OpenAI-compatible endpoint).
-  * OllamaProvider  -> Local Ollama (e.g. llama3.2:1b).
-  * MockProvider    -> Deterministic fallback for local/offline testing.
-
-Provider selection is configured via AI_PROVIDER in .env:
-  AI_PROVIDER=groq   (or grok)
-  AI_PROVIDER=ollama
-  AI_PROVIDER=mock
-"""
+"""Ollama-backed generation for questions, answer keys, and lesson plans."""
 from __future__ import annotations
 
 import json
 import logging
 import re
-import time
 from typing import Any
 
 from config import config
@@ -50,6 +38,40 @@ BLOOM_VERBS = {
     "Evaluate": ["Evaluate", "Justify", "Critique", "Assess", "Argue"],
     "Create": ["Design", "Formulate", "Construct", "Develop", "Propose"],
 }
+_BLOOM_LEVELS = {
+    "Remember": 1,
+    "Understand": 2,
+    "Apply": 3,
+    "Analyze": 4,
+    "Evaluate": 5,
+    "Create": 6,
+}
+
+
+def _coerce_int(value: Any, fallback: int) -> int:
+    if isinstance(value, bool):
+        return fallback
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        match = re.search(r"-?\d+", str(value))
+        return int(match.group()) if match else fallback
+
+
+def _normalize_bloom(value: Any, fallback: str) -> tuple[str, int]:
+    fallback_level = next(
+        (level for level in _BLOOM_LEVELS if level.casefold() == str(fallback).casefold()),
+        "Understand",
+    )
+    if value is not None:
+        text = str(value).strip()
+        for level, number in _BLOOM_LEVELS.items():
+            if text.casefold() == level.casefold():
+                return level, number
+        number = _coerce_int(text, 0)
+        if number in _BLOOM_LEVELS.values():
+            return next(level for level, level_number in _BLOOM_LEVELS.items() if level_number == number), number
+    return fallback_level, _BLOOM_LEVELS[fallback_level]
 
 SYSTEM_PROMPT = (
     "You are an expert examination question-paper setter for an accredited engineering university. "
@@ -57,17 +79,28 @@ SYSTEM_PROMPT = (
     "Rules:\n"
     "1. Generate questions strictly from the provided context. Never invent syllabus topics.\n"
     "2. Respect the requested unit, marks, difficulty, and Bloom's taxonomy level.\n"
-    "3. Avoid questions that duplicate the listed previous questions.\n"
+    "3. Avoid questions that duplicate the listed previous questions. Do not paraphrase one by changing only the verb.\n"
     "4. Make each question academically rigorous, clear, and unambiguous.\n"
-    "5. Return ONLY valid JSON matching the exact schema requested. No markdown, no conversational commentary."
+    "5. Avoid generic filler such as 'based on the studied material'; name the specific syllabus concept.\n"
+    "6. If multiple questions are requested, each must test a different named concept and use a distinct question form.\n"
+    "7. Follow any variation_instruction and return ONLY valid JSON matching the exact schema requested."
+)
+
+ANSWER_SYSTEM_PROMPT = (
+    "You are an expert university examiner writing a model answer and marking guide. "
+    "Answer the supplied question exactly; do not generate or substitute questions. "
+    "Use the supplied syllabus excerpts as the primary source, include the detail justified by the marks, "
+    "and do not invent facts, examples, or source citations. "
+    "If the supplied excerpts do not support a required detail, state that limitation clearly. "
+    "Return only valid JSON matching the requested schema."
 )
 
 LESSON_PLAN_SYSTEM_PROMPT = (
     "You are an academic curriculum and lesson-planning coordinator for an NBA-accredited university. "
     "Based on the uploaded syllabus, generate a structured outcome-based course plan. "
     "Follow Outcome-Based Education (OBE) principles: define Course Objectives, Course Outcomes (CO1-CO5) "
-    "mapped to Bloom's taxonomy, Prerequisites, recommended Textbooks/References, and a detailed topic breakdown. "
-    "Return ONLY valid JSON matching the requested schema."
+    "mapped to Bloom's taxonomy, Prerequisites, and recommended Textbooks/References. "
+    "Return ONLY valid JSON. Every requested list must be a JSON array, never a prose string."
 )
 
 
@@ -81,80 +114,8 @@ class AIProvider:
         raise NotImplementedError
 
 
-class CloudProvider(AIProvider):
-    """OpenAI-compatible cloud LLM provider adapter (Groq / Grok / OpenAI)."""
-
-    def __init__(self, provider_name: str = "groq"):
-        from openai import OpenAI
-
-        self.name = provider_name
-        self.api_key = config.CLOUD_API_KEY
-        self.base_url = config.CLOUD_BASE_URL
-        self.model = config.CLOUD_MODEL
-        self.timeout = config.CLOUD_TIMEOUT
-
-        self.client = OpenAI(
-            base_url=self.base_url,
-            api_key=self.api_key or "missing-key",
-            timeout=self.timeout,
-        )
-
-    def complete_json(self, system: str, user: str, max_tokens: int = 1500) -> dict | list:
-        if not self.api_key:
-            logger.warning("No API key configured for %s. Falling back to MockProvider.", self.name)
-            return MockProvider().complete_json(system, user)
-
-        # Exponential backoff for rate limit errors (up to 3 retries)
-        last_exc = None
-        for attempt in range(3):
-            try:
-                resp = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    temperature=0.2,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"},
-                )
-                content = resp.choices[0].message.content or "{}"
-                return _loads_lenient(content)
-            except Exception as exc:
-                err_msg = str(exc)
-                if "rate_limit_exceeded" in err_msg or "429" in err_msg:
-                    wait = (attempt + 1) * 15  # 15s, 30s, 45s
-                    logger.warning(
-                        "Groq rate limit hit (attempt %d/3). Waiting %ds before retry...", attempt + 1, wait
-                    )
-                    time.sleep(wait)
-                    last_exc = exc
-                    continue
-                # For json_validate_failed (truncated JSON), retry without json_object mode
-                if "json_validate_failed" in err_msg or "json_object" in err_msg.lower():
-                    logger.warning(
-                        "Groq json_object mode failed (likely token truncation). "
-                        "Retrying with plain text + manual JSON extraction."
-                    )
-                    try:
-                        resp2 = self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[
-                                {"role": "system", "content": system + "\nIMPORTANT: Respond ONLY with valid JSON. No extra text."},
-                                {"role": "user", "content": user},
-                            ],
-                            temperature=0.1,
-                            max_tokens=max_tokens,
-                        )
-                        raw = resp2.choices[0].message.content or "{}"
-                        return _loads_lenient(raw)
-                    except Exception as exc2:
-                        logger.warning("Plain-text JSON retry also failed: %s", exc2)
-                        raise exc2
-                raise
-        if last_exc:
-            raise last_exc
-        return {}
+class AIProviderError(RuntimeError):
+    """Raised when an AI provider is unavailable or returns unusable output."""
 
 
 class OllamaProvider(AIProvider):
@@ -163,32 +124,63 @@ class OllamaProvider(AIProvider):
     name = "ollama"
 
     def __init__(self):
-        from openai import OpenAI
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise AIProviderError(
+                "The OpenAI-compatible client is missing. Install backend/requirements.txt."
+            ) from exc
 
         self.client = OpenAI(
-            base_url=config.LLAMA_BASE_URL,
-            api_key=config.LLAMA_API_KEY or "ollama",
-            timeout=config.LLAMA_TIMEOUT,
+            base_url=config.OLLAMA_BASE_URL,
+            api_key=config.OLLAMA_API_KEY or "ollama",
+            timeout=config.OLLAMA_TIMEOUT,
         )
-        self.model = config.LLAMA_MODEL
+        self.model = config.OLLAMA_MODEL
 
     def complete_json(self, system: str, user: str, max_tokens: int = 350) -> dict | list:
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            temperature=config.LLAMA_TEMPERATURE,
-            response_format={"type": "json_object"},
-            max_tokens=max_tokens,
-            extra_body={
-                "repeat_penalty": 1.15,
-                "num_predict": max_tokens,
-            },
-        )
-        content = resp.choices[0].message.content or "{}"
-        return _loads_lenient(content)
+        try:
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=config.OLLAMA_TEMPERATURE,
+                response_format={"type": "json_object"},
+                max_tokens=max_tokens,
+                extra_body={
+                    "repeat_penalty": 1.15,
+                    "num_predict": max_tokens,
+                },
+            )
+        except Exception as exc:
+            logger.exception("Ollama request failed")
+            raise AIProviderError(
+                "Could not reach Ollama. Confirm the server is running, the configured "
+                "model is installed, and OLLAMA_BASE_URL is correct."
+            ) from exc
+
+        choices = getattr(resp, "choices", None)
+        if not choices:
+            raise AIProviderError("Ollama returned no completion choices.")
+        message = getattr(choices[0], "message", None)
+        content = getattr(message, "content", None)
+        if not isinstance(content, str) or not content.strip():
+            raise AIProviderError("Ollama returned an empty response.")
+        try:
+            return _loads_lenient(content)
+        except (json.JSONDecodeError, TypeError) as exc:
+            try:
+                task = json.loads(user).get("task")
+            except (json.JSONDecodeError, AttributeError):
+                task = None
+            if task == "answer":
+                answer = _answer_from_invalid_json(content)
+                if answer:
+                    logger.warning("Ollama returned a non-JSON answer; preserving its text response.")
+                    return {"answer": answer}
+            raise AIProviderError("Ollama returned invalid JSON. Please retry generation.") from exc
 
 
 class MockProvider(AIProvider):
@@ -307,28 +299,17 @@ class MockProvider(AIProvider):
 
 
 # ======================================================================
-# Provider Factory
+# Provider factory
 # ======================================================================
-_PROVIDER: AIProvider | None = None
-
-
 def get_provider() -> AIProvider:
-    global _PROVIDER
-    provider_name = (config.AI_PROVIDER or "mock").lower()
-
-    if provider_name in ("groq", "grok", "cloud"):
-        if config.CLOUD_API_KEY:
-            return CloudProvider(provider_name)
-        logger.warning(
-            "AI_PROVIDER is set to '%s' but no API key was found. "
-            "Falling back to local Ollama or Mock provider.", provider_name
-        )
-        return OllamaProvider() if config.LLAMA_BASE_URL else MockProvider()
-
+    provider_name = (config.AI_PROVIDER or "ollama").lower()
     if provider_name in ("ollama", "llama"):
         return OllamaProvider()
-
-    return MockProvider()
+    if provider_name == "mock":
+        return MockProvider()
+    raise AIProviderError(
+        f"Unsupported AI_PROVIDER '{provider_name}'. Choose 'ollama' or 'mock'."
+    )
 
 
 # ======================================================================
@@ -336,7 +317,7 @@ def get_provider() -> AIProvider:
 # ======================================================================
 def generate_questions(*, subject: dict, unit: int, topic_hint: str, count: int, marks: int,
                        difficulty: str, bloom: str, qtype: str, context: str,
-                       previous_questions: list[str]) -> list[dict]:
+                       previous_questions: list[str], variation_instruction: str = "") -> list[dict]:
     """Generates examination questions aligned strictly to syllabus context."""
     user = json.dumps(
         {
@@ -350,6 +331,7 @@ def generate_questions(*, subject: dict, unit: int, topic_hint: str, count: int,
             "bloom_level": bloom,
             "question_type": qtype,
             "previous_questions": previous_questions[:20],
+            "variation_instruction": variation_instruction,
             "context": context,
             "output_schema": {
                 "questions": [
@@ -372,11 +354,7 @@ def generate_questions(*, subject: dict, unit: int, topic_hint: str, count: int,
     )
 
     provider = get_provider()
-    try:
-        result = provider.complete_json(SYSTEM_PROMPT, user, max_tokens=max(1200, 600 * count))
-    except Exception as exc:
-        logger.warning("Provider %s failed (%s). Falling back to MockProvider.", provider.name, exc)
-        result = MockProvider().complete_json(SYSTEM_PROMPT, user)
+    result = provider.complete_json(SYSTEM_PROMPT, user, max_tokens=max(1200, 600 * count))
 
     questions = []
     if isinstance(result, dict):
@@ -392,9 +370,6 @@ def generate_questions(*, subject: dict, unit: int, topic_hint: str, count: int,
     elif isinstance(result, list):
         questions = result
 
-    bloom_map = {"Remember": 1, "Understand": 2, "Apply": 3, "Analyze": 4, "Evaluate": 5, "Create": 6}
-    default_bl = bloom_map.get(bloom, 2)
-
     norm = []
     for q in questions or []:
         if isinstance(q, str):
@@ -406,38 +381,28 @@ def generate_questions(*, subject: dict, unit: int, topic_hint: str, count: int,
         if not q_text:
             continue
 
-        q_bloom = str(q.get("bloom_level") or bloom).capitalize()
-        bl_val = int(q.get("bl") or bloom_map.get(q_bloom, default_bl))
+        q_bloom, bl_val = _normalize_bloom(q.get("bloom_level") or q.get("bl"), bloom)
 
         norm.append(
             {
                 "question": q_text,
-                "unit": int(q.get("unit", unit) or unit),
+                "unit": _coerce_int(q.get("unit", unit), unit) or unit,
                 "topic": _clean_text(str(q.get("topic") or topic_hint or "General")),
-                "marks": int(q.get("marks", marks) or marks),
+                "marks": _coerce_int(q.get("marks", marks), marks) or marks,
                 "difficulty": str(q.get("difficulty") or difficulty).capitalize(),
                 "bloom_level": q_bloom,
                 "question_type": str(q.get("type") or q.get("question_type") or qtype).capitalize(),
                 "bl": bl_val,
-                "co": int(q.get("co") or min(5, max(1, unit))),
-                "po": int(q.get("po") or 3),
-                "pso": int(q.get("pso") or 2),
+                "co": _coerce_int(q.get("co"), min(5, max(1, unit))),
+                "po": _coerce_int(q.get("po"), 3),
+                "pso": _coerce_int(q.get("pso"), 2),
             }
         )
 
     valid = [q for q in norm if len(q["question"]) > 10]
     if not valid:
-        return MockProvider()._questions(
-            {
-                "context": context,
-                "unit": unit,
-                "count": count,
-                "marks": marks,
-                "difficulty": difficulty,
-                "bloom": bloom,
-                "qtype": qtype,
-                "previous": previous_questions,
-            }
+        raise AIProviderError(
+            f"{provider.name} did not return any valid structured questions. Please retry generation."
         )
     return valid
 
@@ -445,10 +410,13 @@ def generate_questions(*, subject: dict, unit: int, topic_hint: str, count: int,
 def generate_answer(*, question: dict, context: str) -> str:
     """Generates an answer key with depth scaled according to question marks.
 
-    Uses plain-text generation (no json_object mode) to avoid Groq's JSON
-    truncation error when answer text exceeds available token budget.
+    Uses the shared JSON response path so Ollama and mock outputs are normalized consistently.
     """
-    marks = question.get("marks", 6)
+    question_text = question.get("question")
+    if not isinstance(question_text, str) or not question_text.strip():
+        raise AIProviderError("The question is empty or invalid.")
+
+    marks = _coerce_int(question.get("marks"), 6)
     if marks <= 3:
         depth = "Write a concise answer in 2-4 sentences covering definition and key points."
     elif marks <= 6:
@@ -459,62 +427,28 @@ def generate_answer(*, question: dict, context: str) -> str:
             "3) Algorithm or Steps, 4) Example with trace, 5) Time/Space complexity. Around 300 words."
         )
 
-    system = (
-        "You are an expert examination answer-key writer for an engineering university. "
-        "Use only the provided context. Write the answer directly as plain text — no JSON, no markdown code blocks."
-    )
-    user_text = (
-        f"Question: {question['question']}\n"
-        f"Topic: {question.get('topic', '')}\n"
-        f"Marks: {marks}\n"
-        f"Context: {context[:1800]}\n\n"
-        f"Instructions: {depth}\n"
-        "Write only the answer text below:\n"
-    )
-
     provider = get_provider()
     answer_max_tokens = 400 if marks <= 3 else (700 if marks <= 6 else 1000)
 
-    try:
-        if isinstance(provider, CloudProvider):
-            # Use plain-text mode for answers to avoid json truncation
-            resp = provider.client.chat.completions.create(
-                model=provider.model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_text},
-                ],
-                temperature=0.3,
-                max_tokens=answer_max_tokens,
-            )
-            raw = resp.choices[0].message.content or ""
-            return _clean_text(raw.strip())
-        else:
-            # Ollama/Mock: use json schema path
-            user_json = json.dumps(
-                {
-                    "task": "answer",
-                    "question": question["question"],
-                    "topic": question.get("topic"),
-                    "marks": marks,
-                    "context": context[:1800],
-                    "instructions": depth,
-                    "output_schema": {"answer": "string"},
-                }
-            )
-            result = provider.complete_json(SYSTEM_PROMPT, user_json, max_tokens=answer_max_tokens)
-            if isinstance(result, dict):
-                return _clean_text(str(result.get("answer") or result.get("text") or ""))
-            return _clean_text(str(result))
-    except Exception as exc:
-        logger.warning("Answer generation failed via %s: %s. Using MockProvider.", provider.name, exc)
-        # Graceful fallback using Mock
-        spec = {
-            "context": context,
-            "topic": question.get("topic", ""),
+    user_json = json.dumps(
+        {
+            "task": "answer",
+            "question": question_text.strip(),
+            "topic": question.get("topic"),
             "marks": marks,
+            "context": context[:1800],
+            "instructions": depth,
+            "output_schema": {"answer": "string"},
         }
-        return _clean_text(MockProvider()._answer(spec))
+    )
+    result = provider.complete_json(ANSWER_SYSTEM_PROMPT, user_json, max_tokens=answer_max_tokens)
+    answer_value = result.get("answer") or result.get("text") if isinstance(result, dict) else result
+    if not isinstance(answer_value, str):
+        raise AIProviderError(f"{provider.name} returned an invalid answer format. Please retry generation.")
+    answer = _clean_text(answer_value)
+    if not answer:
+        raise AIProviderError(f"{provider.name} did not return an answer. Please retry generation.")
+    return answer
 
 
 def generate_lesson_plan_ai(*, subject: dict, syllabus_text: str) -> dict:
@@ -527,28 +461,30 @@ def generate_lesson_plan_ai(*, subject: dict, syllabus_text: str) -> dict:
             "semester": subject.get("semester"),
             "syllabus_excerpt": syllabus_text[:4000],
             "output_schema": {
-                "prerequisites": ["string"],
-                "course_objectives": ["string"],
+                "prerequisites": ["up to 3 concise strings"],
+                "course_objectives": ["3 concise strings, up to 15 words each"],
                 "course_outcomes": [
-                    {"co": "CO1", "text": "string", "bloom": "string", "unit": 1}
+                    {"co": "CO1", "text": "concise string of at most 18 words", "bloom": "string", "unit": 1}
                 ],
                 "textbooks": [{"title": "string", "author": "string", "edition": "string", "publisher": "string"}],
                 "references": [{"title": "string", "author": "string", "edition": "string", "publisher": "string"}],
             },
+            "constraints": [
+                "Return exactly 5 course outcomes, one for each of CO1 through CO5.",
+                "Return exactly 3 objectives; keep each objective and outcome concise and grounded in the syllabus.",
+                "Return all fields in the exact JSON types shown in output_schema.",
+            ],
         }
     )
 
     provider = get_provider()
-    try:
-        # Keep lesson plan payload small enough for Groq's TPM; 1500 tokens is safe
-        result = provider.complete_json(LESSON_PLAN_SYSTEM_PROMPT, user, max_tokens=1500)
-    except Exception as exc:
-        logger.warning("Lesson plan AI generation failed (%s). Using deterministic OBE composer.", exc)
-        result = MockProvider().complete_json(LESSON_PLAN_SYSTEM_PROMPT, user)
+    result = provider.complete_json(LESSON_PLAN_SYSTEM_PROMPT, user, max_tokens=700)
 
     if isinstance(result, dict) and "course_outcomes" in result:
         return result
-    return MockProvider()._lesson_plan({"subject_name": subject.get("name")})
+    raise AIProviderError(
+        f"{provider.name} did not return a valid lesson plan. Please retry generation."
+    )
 
 
 # ======================================================================
@@ -564,6 +500,29 @@ def _loads_lenient(text: str) -> dict | list:
         if m:
             return json.loads(m.group(1))
         raise
+
+
+def _answer_from_invalid_json(content: str) -> str:
+    text = re.sub(r"^```(?:json|text)?\s*|\s*```$", "", content.strip(), flags=re.IGNORECASE)
+    answer_key = re.search(r'"answer"\s*:\s*', text, re.IGNORECASE)
+    if answer_key:
+        value = text[answer_key.end():].strip()
+        if value.startswith('"'):
+            try:
+                decoded, _ = json.JSONDecoder().raw_decode(value)
+                if isinstance(decoded, str):
+                    return _clean_text(decoded)
+            except json.JSONDecodeError:
+                value = value[1:]
+            value = re.split(r'"\s*[,}]\s*', value, maxsplit=1)[0]
+            return _clean_text(value.replace(r"\"", '"').replace(r"\n", "\n"))
+        if value.startswith("'"):
+            value = value[1:]
+        value = re.split(r"\s*[,}]\s*", value, maxsplit=1)[0]
+        return _clean_text(value.strip("'\""))
+    if text.startswith(("{", "[")):
+        return ""
+    return _clean_text(text)
 
 
 def _parse_mock_user(user: str) -> dict:

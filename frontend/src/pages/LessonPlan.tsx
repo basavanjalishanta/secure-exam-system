@@ -204,6 +204,14 @@ export default function LessonPlan() {
 
       {subject && !loading && (
         <div className="space-y-6 mt-4">
+          {generating && (
+            <div className="space-y-1">
+              <Spinner label="Generating OBE course outcomes with local Ollama..." />
+              <p className="text-sm text-slate-500">
+                Local generation can take about a minute. Keep this page open while the plan is being created.
+              </p>
+            </div>
+          )}
           {!plan ? (
             <div className="card space-y-4">
               <h3 className="font-semibold text-lg text-slate-800">Generate Structured Course Plan</h3>
@@ -300,7 +308,6 @@ export default function LessonPlan() {
                   {generating ? "Synthesizing Course Plan..." : "Generate Course Lesson Plan"}
                 </button>
               </div>
-              {generating && <Spinner label="Analyzing syllabus topics and distributing 42 lecture sessions..." />}
             </div>
           ) : (
             <div className="space-y-6">

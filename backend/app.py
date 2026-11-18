@@ -6,6 +6,7 @@ from flask_cors import CORS
 
 from config import config
 from models import db
+from services.ai_service import AIProviderError
 
 
 def create_app() -> Flask:
@@ -52,6 +53,10 @@ def create_app() -> Flask:
     @app.errorhandler(413)
     def too_large(_):
         return jsonify({"error": "File too large"}), 413
+
+    @app.errorhandler(AIProviderError)
+    def ai_provider_error(exc):
+        return jsonify({"error": str(exc)}), 503
 
     @app.errorhandler(500)
     def server_error(exc):

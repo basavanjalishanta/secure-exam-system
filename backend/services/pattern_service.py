@@ -255,16 +255,16 @@ def default_patterns() -> list[dict]:
             ],
         },
         {
-            "name": "CIE / Internals 50 Marks (2 Units, 6+6+8 OR Choice, Q1-Q4)",
+            "name": "CIE / Internals 40 Marks (2 Units, 6+6+8 OR Choice, Q1-Q4)",
             "format": "unit_or",
             "units": 2,
             "sub_parts": [6, 6, 8],
             "marks_per_question": 20,
-            "total_marks": 50,
+            "total_marks": 40,
             "exam_type": "Continuous Internal Evaluation (CIE)",
             "sections": [
-                {"section": "Unit-I", "count": 2, "marks_each": 25, "total": 25},
-                {"section": "Unit-II", "count": 2, "marks_each": 25, "total": 25},
+                {"section": "Unit-I", "count": 2, "marks_each": 20, "total": 20},
+                {"section": "Unit-II", "count": 2, "marks_each": 20, "total": 20},
             ],
         },
         {
@@ -316,23 +316,69 @@ def default_patterns() -> list[dict]:
     ]
 
 
+def normalize_pattern(pattern: dict) -> dict:
+    """Keep unit-OR totals aligned with the marks actually generated for each unit."""
+    if pattern.get("format") != "unit_or" and "sub_parts" not in pattern:
+        return pattern
+
+    sub_parts = [int(mark) for mark in pattern.get("sub_parts") or [6, 6, 8]]
+    units = int(pattern.get("units") or 5)
+    generated_total = units * sum(sub_parts)
+    if pattern.get("total_marks") == generated_total:
+        return pattern
+
+    normalized = dict(pattern)
+    normalized["total_marks"] = generated_total
+    normalized["name"] = re.sub(
+        r"\b\d+\s+Marks\b",
+        f"{generated_total} Marks",
+        pattern.get("name", ""),
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    marks_per_unit = sum(sub_parts)
+    normalized["sections"] = [
+        {
+            **section,
+            "marks_each": marks_per_unit,
+            "total": marks_per_unit,
+        }
+        if str(section.get("section", "")).startswith("Unit-")
+        else section
+        for section in pattern.get("sections", [])
+    ]
+    return normalized
+
+
 def build_generation_plan(pattern: dict, units: list[int], unit_weights: dict | None = None) -> list[dict]:
     """Turn a pattern + unit weighting into per-question generation slots."""
-    units = units or [1, 2, 3, 4, 5]
+    required_units = pattern.get("units")
+    units = units or list(range(1, int(required_units or 5) + 1))
+    try:
+        units = list(dict.fromkeys(int(unit) for unit in units))
+    except (TypeError, ValueError):
+        raise ValueError("Selected units must be a list of unit numbers.") from None
     slots: list[dict] = []
 
     # Check if this is a VTU Unit-OR pattern
     if pattern.get("format") == "unit_or" or "sub_parts" in pattern:
+        if required_units is not None and len(units) != int(required_units):
+            raise ValueError(
+                f"This pattern requires exactly {required_units} units; "
+                f"{len(units)} selected."
+            )
         sub_parts = pattern.get("sub_parts") or [6, 6, 8]
         sub_labels = ["a", "b", "c", "d", "e"]
 
         for u_idx, u in enumerate(units):
             fq_base = u_idx * 2 + 1  # 1, 3, 5, 7, 9
+            roman_unit = {1: "I", 2: "II", 3: "III", 4: "IV", 5: "V"}.get(u, str(u))
+            section_label = f"Unit-{roman_unit}"
 
             # Question group 1 (Main Question, e.g. Q01)
             for sp_idx, marks in enumerate(sub_parts):
                 slots.append({
-                    "section": f"Unit-{u}",
+                    "section": section_label,
                     "unit": u,
                     "marks": marks,
                     "difficulty": _difficulty_for_marks(marks),
@@ -346,7 +392,7 @@ def build_generation_plan(pattern: dict, units: list[int], unit_weights: dict | 
             # Question group 2 (OR Question, e.g. Q02)
             for sp_idx, marks in enumerate(sub_parts):
                 slots.append({
-                    "section": f"Unit-{u}",
+                    "section": section_label,
                     "unit": u,
                     "marks": marks,
                     "difficulty": _difficulty_for_marks(marks),

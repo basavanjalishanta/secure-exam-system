@@ -4,7 +4,8 @@ import { authApi, User } from "../services/api";
 interface AuthState {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;\n  verifyOtp: (email: string, otp: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  verifyOtp: (email: string, otp: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   logout: () => void;
 }

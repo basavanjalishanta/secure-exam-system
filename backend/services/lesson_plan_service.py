@@ -58,6 +58,122 @@ DEFAULT_PSOS = [
 ]
 
 
+class LessonPlanInputError(ValueError):
+    """Raised when lesson-plan metadata cannot produce a valid schedule."""
+
+
+def _text_items(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = re.split(r"(?:\r?\n)+|;\s*|\s+(?=\d{1,2}[.)]\s+)", value.strip())
+    elif isinstance(value, list):
+        values = value
+    else:
+        return []
+
+    items = []
+    for item in values:
+        if isinstance(item, dict):
+            item = item.get("text") or item.get("objective") or item.get("description") or ""
+        if isinstance(item, str):
+            text = re.sub(r"^\s*(?:\d{1,2}[.)]|[-*•])\s*", "", item).strip()
+            if text:
+                items.append(text)
+    return items
+
+
+def _course_outcomes(value: Any) -> list[dict]:
+    if isinstance(value, str):
+        values = _text_items(value)
+    elif isinstance(value, dict):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        values = []
+
+    outcomes = []
+    for index, item in enumerate(values):
+        if isinstance(item, str):
+            match = re.match(r"^\s*(CO\s*\d+)\s*[:.)-]\s*(.*)$", item, re.IGNORECASE)
+            code = re.sub(r"\s+", "", match.group(1)).upper() if match else f"CO{index + 1}"
+            text = match.group(2).strip() if match else item.strip()
+            bloom = "Understand"
+            unit = index + 1
+        elif isinstance(item, dict):
+            text = str(
+                item.get("text") or item.get("outcome") or item.get("description") or ""
+            ).strip()
+            code = str(item.get("co") or item.get("code") or f"CO{index + 1}").strip()
+            bloom = str(item.get("bloom") or item.get("bloom_level") or "Understand").strip()
+            raw_unit = item.get("unit", index + 1)
+            unit_match = re.search(r"\d+", str(raw_unit))
+            unit = int(unit_match.group()) if unit_match else index + 1
+        else:
+            continue
+
+        if text:
+            outcomes.append({
+                "co": code or f"CO{index + 1}",
+                "text": text,
+                "bloom": bloom or "Understand",
+                "unit": max(1, unit),
+            })
+    return outcomes
+
+
+def _book_items(value: Any) -> list[dict]:
+    if isinstance(value, str):
+        values = [{"title": title} for title in _text_items(value)]
+    elif isinstance(value, dict):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        values = []
+
+    books = []
+    for item in values:
+        if isinstance(item, str):
+            item = {"title": item}
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or item.get("book_title") or "").strip()
+        if title:
+            books.append({
+                "title": title,
+                "author": str(item.get("author") or ""),
+                "edition": str(item.get("edition") or ""),
+                "publisher": str(item.get("publisher") or ""),
+            })
+    return books
+
+
+def normalize_lesson_plan_data(plan: dict) -> dict:
+    """Normalize model and previously saved lesson-plan fields for the UI and PDF."""
+    normalized = dict(plan)
+    course_title = normalized.get("course_title") or "the course"
+    normalized["prerequisites"] = _text_items(normalized.get("prerequisites")) or [
+        "Basic knowledge of foundational programming and problem solving.",
+        "Elementary mathematics and discrete logic.",
+    ]
+    normalized["course_objectives"] = _text_items(normalized.get("course_objectives")) or [
+        f"Understand core concepts and paradigms of {course_title}.",
+        f"Implement and analyze standard techniques in {course_title}.",
+    ]
+    normalized["course_outcomes"] = _course_outcomes(normalized.get("course_outcomes")) or [
+        {"co": f"CO{i}", "text": f"Apply and analyze key concepts from {course_title}.",
+         "bloom": "Apply", "unit": i}
+        for i in range(1, 6)
+    ]
+    normalized["textbooks"] = _book_items(normalized.get("textbooks")) or [
+        {"title": f"Core Concepts in {course_title}", "author": "", "edition": "", "publisher": ""}
+    ]
+    normalized["references"] = _book_items(normalized.get("references")) or [
+        {"title": f"Reference Manual for {course_title}", "author": "", "edition": "", "publisher": ""}
+    ]
+    return normalized
+
+
 def extract_syllabus_topics(syllabus_text: str, num_units: int = 5) -> dict[int, list[str]]:
     """Splits syllabus into units and extracts discrete subtopics."""
     unit_blocks: dict[int, list[str]] = {u: [] for u in range(1, num_units + 1)}
@@ -146,6 +262,11 @@ def build_lecture_schedule(
     num_units = len(unit_topics)
     if num_units == 0:
         return []
+    minimum_hours = num_units * 2
+    if total_hours < minimum_hours:
+        raise LessonPlanInputError(
+            f"At least {minimum_hours} contact hours are required for {num_units} units."
+        )
 
     # 1. Weight calculation per unit based on its topics
     unit_weights = {}
@@ -240,12 +361,18 @@ def generate_lesson_plan(subject_id: str, meta: dict | None = None) -> dict:
     syllabus_doc = db.documents().find_one({"subject_id": subject_id, "type": "syllabus"})
     syllabus_text = syllabus_doc.get("extracted_text", "") if syllabus_doc else ""
 
+    classes_per_week = int(meta.get("classes_per_week") or 3)
+    total_contact_hours = int(meta.get("total_contact_hours") or (classes_per_week * 14))
+    num_units = len(subject.get("units") or [1, 2, 3, 4, 5])
+    minimum_hours = num_units * 2
+    if total_contact_hours < minimum_hours:
+        raise LessonPlanInputError(
+            f"At least {minimum_hours} contact hours are required for {num_units} units."
+        )
+
     # Call AI service to generate OBE components
     ai_content = ai_service.generate_lesson_plan_ai(subject=subject, syllabus_text=syllabus_text)
 
-    classes_per_week = int(meta.get("classes_per_week") or 3)
-    total_contact_hours = int(meta.get("total_contact_hours") or (classes_per_week * 14))
-    
     # L-T-P format reflects classes per week (e.g. 3-0-0 or 4-0-0)
     l_t_p = meta.get("l_t_p") or f"{classes_per_week}-0-0"
 
@@ -256,7 +383,7 @@ def generate_lesson_plan(subject_id: str, meta: dict | None = None) -> dict:
         classes_per_week=classes_per_week,
     )
 
-    plan = {
+    plan = normalize_lesson_plan_data({
         "subject_id": subject_id,
         "course_title": subject.get("name"),
         "course_code": subject.get("code"),
@@ -329,7 +456,7 @@ def generate_lesson_plan(subject_id: str, meta: dict | None = None) -> dict:
         "status": "draft",
         "approved": False,
         "created_at": db.utcnow(),
-    }
+    })
 
     # Upsert in MongoDB
     res = db.lesson_plans().update_one(

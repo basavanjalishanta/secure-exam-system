@@ -4,6 +4,7 @@ from bson import ObjectId
 from flask import Blueprint, g, jsonify, request, send_file
 
 from models import db
+from services.ai_service import AIProviderError
 from services import lesson_plan_service
 from utils.audit import log_action
 from utils.security import lecturer_required
@@ -24,6 +25,10 @@ def generate():
         plan = lesson_plan_service.generate_lesson_plan(subject_id, meta=data.get("meta"))
         log_action("GENERATE_LESSON_PLAN", subject_id=subject_id, contact_hours=plan.get("total_contact_hours"))
         return jsonify({"lesson_plan": jsonify_doc(plan)}), 200
+    except AIProviderError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except lesson_plan_service.LessonPlanInputError as val_err:
+        return jsonify({"error": str(val_err)}), 400
     except ValueError as val_err:
         return jsonify({"error": str(val_err)}), 404
     except Exception as exc:
@@ -36,6 +41,7 @@ def get_by_subject(subject_id):
     plan = db.lesson_plans().find_one({"subject_id": subject_id})
     if not plan:
         return jsonify({"lesson_plan": None}), 200
+    plan = lesson_plan_service.normalize_lesson_plan_data(plan)
     return jsonify({"lesson_plan": jsonify_doc(plan)}), 200
 
 
@@ -54,7 +60,9 @@ def update_plan(plan_id):
     update_data["updated_at"] = db.utcnow()
 
     db.lesson_plans().update_one({"_id": ObjectId(plan_id)}, {"$set": update_data})
-    updated = db.lesson_plans().find_one({"_id": ObjectId(plan_id)})
+    updated = lesson_plan_service.normalize_lesson_plan_data(
+        db.lesson_plans().find_one({"_id": ObjectId(plan_id)})
+    )
     log_action("UPDATE_LESSON_PLAN", plan_id=plan_id, subject_id=str(plan["subject_id"]))
     return jsonify({"lesson_plan": jsonify_doc(updated)}), 200
 
@@ -81,6 +89,7 @@ def export_pdf(plan_id):
     if not plan:
         return jsonify({"error": "Lesson plan not found"}), 404
 
+    plan = lesson_plan_service.normalize_lesson_plan_data(plan)
     pdf_bytes = lesson_plan_service.build_lesson_plan_pdf(plan)
     code = plan.get("course_code", "Course")
     filename = f"Course_Plan_{code}.pdf"

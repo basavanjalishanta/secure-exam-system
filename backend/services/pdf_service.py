@@ -12,6 +12,8 @@ Formats strictly according to the VTU / Autonomous Institution standards
 from __future__ import annotations
 
 import io
+from xml.sax.saxutils import escape
+
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
@@ -41,6 +43,29 @@ _OR_DIVIDER = ParagraphStyle("or_div", parent=_styles["Normal"], fontSize=10, le
 _A = ParagraphStyle("a", parent=_styles["Normal"], fontSize=8.5, leading=11.5, spaceAfter=6, leftIndent=10, alignment=TA_JUSTIFY)
 
 
+def _escaped(value) -> str:
+    return escape(str(value if value is not None else ""))
+
+
+def _answer_key_question_number(question: dict, index: int) -> str:
+    full_number = question.get("full_question_num")
+    if full_number is not None:
+        try:
+            number = f"Q{int(full_number):02d}"
+        except (TypeError, ValueError):
+            number = f"Q{index:02d}"
+    else:
+        try:
+            number = f"Q{int(question.get('index', index - 1)) + 1}"
+        except (TypeError, ValueError):
+            number = f"Q{index}"
+
+    sub_part = question.get("sub_part")
+    if isinstance(sub_part, str) and sub_part.strip():
+        number += f"({sub_part.strip().strip('()')})"
+    return number
+
+
 def _usn_and_code_header(meta: dict):
     """Draws the top row: USN boxes on the left, Course code on the right."""
     row = [
@@ -55,7 +80,7 @@ def _usn_and_code_header(meta: dict):
         Paragraph("", _OUTCOME_CELL),
         Paragraph("", _OUTCOME_CELL),
         Paragraph("", _OUTCOME_CELL),
-        Paragraph(f"<b>{meta.get('subject_code', '3RCS02')}</b>", ParagraphStyle("code_lbl", parent=_styles["Normal"], fontSize=10, alignment=TA_RIGHT, fontName="Helvetica-Bold")),
+        Paragraph(f"<b>{_escaped(meta.get('subject_code', '3RCS02'))}</b>", ParagraphStyle("code_lbl", parent=_styles["Normal"], fontSize=10, alignment=TA_RIGHT, fontName="Helvetica-Bold")),
     ]
     col_w = [1.2 * cm] + [0.42 * cm] * 10 + [12.1 * cm]
     t = Table([row], colWidths=col_w, rowHeights=[0.45 * cm])
@@ -122,7 +147,7 @@ def build_question_paper_pdf(meta: dict, questions: list[dict]) -> bytes:
 
     # 2. Institutional Title
     college = meta.get("college_name", "Siddaganga Institute of Technology, Tumakuru - 572 103")
-    elems.append(Paragraph(f"<b>{college}</b>", _H))
+    elems.append(Paragraph(f"<b>{_escaped(college)}</b>", _H))
     elems.append(Paragraph("(An Autonomous Institution affiliated to VTU, Belagavi, Approved by AICTE, New Delhi)", _SUB))
     elems.append(Spacer(1, 2))
 
@@ -130,14 +155,14 @@ def build_question_paper_pdf(meta: dict, questions: list[dict]) -> bytes:
     max_marks = meta.get("max_marks", 100)
     default_exam_title = "Continuous Internal Evaluation (CIE)" if max_marks <= 50 else "Semester End Examinations B.E."
     exam_title = meta.get("exam_name") or default_exam_title
-    elems.append(Paragraph(exam_title, _EXAM))
-    elems.append(Paragraph(f"<b>{meta.get('subject_name', 'Course Examination')}</b>", _COURSE))
+    elems.append(Paragraph(_escaped(exam_title), _EXAM))
+    elems.append(Paragraph(f"<b>{_escaped(meta.get('subject_name', 'Course Examination'))}</b>", _COURSE))
     elems.append(Spacer(1, 2))
 
     # 4. Time, Max Marks, and Note
     time_str = meta.get("time") or ("90 Minutes" if max_marks <= 50 else "3 Hours")
     info_table = Table(
-        [[Paragraph(f"<b>Time: {time_str}</b>", _NOTE), Paragraph(f"<b>Max. Marks: {max_marks}</b>", ParagraphStyle("mm", parent=_NOTE, alignment=TA_RIGHT))]],
+        [[Paragraph(f"<b>Time: {_escaped(time_str)}</b>", _NOTE), Paragraph(f"<b>Max. Marks: {_escaped(max_marks)}</b>", ParagraphStyle("mm", parent=_NOTE, alignment=TA_RIGHT))]],
         colWidths=[8.5 * cm, 9.0 * cm],
     )
     info_table.setStyle(TableStyle([
@@ -151,7 +176,7 @@ def build_question_paper_pdf(meta: dict, questions: list[dict]) -> bytes:
 
     default_note = "Note : Answer any two full questions from Q.No. 1 to Q.No. 4." if max_marks <= 50 else "Note : Answer any five full questions from Q.No. 1 to Q.No. 10."
     note_text = meta.get("note") or default_note
-    elems.append(Paragraph(f"<b>{note_text}</b>", _NOTE))
+    elems.append(Paragraph(f"<b>{_escaped(note_text)}</b>", _NOTE))
     elems.append(Spacer(1, 4))
     elems.append(HRFlowable(width="100%", thickness=0.8, color=colors.black))
     elems.append(Spacer(1, 6))
@@ -243,7 +268,7 @@ def build_question_paper_pdf(meta: dict, questions: list[dict]) -> bytes:
 
                 q_row = [
                     Paragraph(q_num_prefix, ParagraphStyle("sub_lbl", parent=_styles["Normal"], fontSize=9, fontName="Helvetica-Bold")),
-                    Paragraph(q.get("question", ""), _Q_TEXT),
+                    Paragraph(_escaped(q.get("question", "")), _Q_TEXT),
                     Paragraph(str(q.get("marks", 6)), _Q_MARK),
                 ]
                 t_q = Table([q_row], colWidths=[1.1 * cm, 15.0 * cm, 1.4 * cm])
@@ -297,23 +322,28 @@ def build_answer_key_pdf(meta: dict, questions: list[dict]) -> bytes:
     )
 
     elems = [
-        Paragraph(f"<b>{meta.get('college_name', 'Siddaganga Institute of Technology, Tumakuru')}</b>", _H),
+        Paragraph(f"<b>{_escaped(meta.get('college_name', 'Siddaganga Institute of Technology, Tumakuru'))}</b>", _H),
         Paragraph("<b>EXAMINATION ANSWER KEY & SCHEME OF VALUATION (CONFIDENTIAL)</b>", _EXAM),
-        Paragraph(f"Subject: {meta.get('subject_name', '-')} ({meta.get('subject_code', '-')})", _SUB),
+        Paragraph(f"Subject: {_escaped(meta.get('subject_name', '-'))} ({_escaped(meta.get('subject_code', '-'))})", _SUB),
         Spacer(1, 4),
         HRFlowable(width="100%", thickness=1, color=colors.black),
         Spacer(1, 6),
     ]
 
     for idx, q in enumerate(questions, 1):
-        q_header = f"<b>Q{idx}. [{q.get('marks', 6)} Marks] (Unit {q.get('unit', 1)}, BL: {q.get('bl', 2)}, CO: {q.get('co', 1)})</b>: {q.get('question', '')}"
+        answer = q.get("answer")
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError(f"Question {idx} has no generated answer.")
+        q_number = _answer_key_question_number(q, idx)
+        q_header = f"<b>{_escaped(q_number)}. [{_escaped(q.get('marks', 6))} Marks] (Unit {_escaped(q.get('unit', 1))}, BL: {_escaped(q.get('bl', 2))}, CO: {_escaped(q.get('co', 1))})</b>: {_escaped(q.get('question', ''))}"
         elems.append(Paragraph(q_header, ParagraphStyle("ak_q", parent=_styles["Normal"], fontSize=9, fontName="Helvetica-Bold", spaceBefore=4, spaceAfter=3)))
 
-        answer_text = (q.get("answer") or "Answer model key not generated yet.").replace("\n", "<br/>")
+        answer_text = _escaped(answer).replace("\n", "<br/>")
         elems.append(Paragraph(answer_text, _A))
 
         if q.get("answer_support"):
-            support_line = f"<font size=7 color='grey'>Supported by: {', '.join(q.get('answer_sources', ['Course Notes']))} | Support score: {q.get('answer_support')}</font>"
+            sources = ", ".join(str(source) for source in (q.get("answer_sources") or ["Course Notes"]))
+            support_line = f"<font size=7 color='grey'>Supported by: {_escaped(sources)} | Support score: {_escaped(q.get('answer_support'))}</font>"
             elems.append(Paragraph(support_line, ParagraphStyle("ak_sup", parent=_styles["Normal"], fontSize=7, leftIndent=10)))
         elems.append(Spacer(1, 4))
 

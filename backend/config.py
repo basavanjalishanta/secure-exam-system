@@ -53,32 +53,26 @@ class Config:
     MAX_CONTENT_MB = int(_get("MAX_CONTENT_MB", "40"))
     ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
-    # --- AI provider abstraction ---
-    # AI_PROVIDER = "mock" (dev/testing) | "llama" (local LLaMA-compatible endpoint)
-    # --- AI provider abstraction ---
-    # AI_PROVIDER = "groq" | "grok" | "ollama" | "mock"
-    AI_PROVIDER = _get("AI_PROVIDER", "groq").lower()
+    # --- Local AI provider ---
+    # AI_PROVIDER = "ollama" | "mock" (development/testing only)
+    AI_PROVIDER = _get("AI_PROVIDER", "ollama").lower()
 
-    # Cloud LLM (Groq / Grok / OpenAI-compatible endpoint)
-    GROQ_API_KEY = _get("GROQ_API_KEY", "")
-    GROK_API_KEY = _get("GROK_API_KEY", "")
-    CLOUD_API_KEY = _get("CLOUD_API_KEY", "") or GROQ_API_KEY or GROK_API_KEY
-
-    GROQ_BASE_URL = _get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-    GROK_BASE_URL = _get("GROK_BASE_URL", "https://api.x.ai/v1")
-    CLOUD_BASE_URL = _get("CLOUD_BASE_URL", "") or (GROK_BASE_URL if "grok" in AI_PROVIDER else GROQ_BASE_URL)
-
-    GROQ_MODEL = _get("GROQ_MODEL", "openai/gpt-oss-120b")
-    GROK_MODEL = _get("GROK_MODEL", "grok-beta")
-    CLOUD_MODEL = _get("CLOUD_MODEL", "") or (GROK_MODEL if "grok" in AI_PROVIDER else GROQ_MODEL)
-    CLOUD_TIMEOUT = int(_get("CLOUD_TIMEOUT", "60"))
-
-    # Local Ollama
-    LLAMA_BASE_URL = _get("LLAMA_BASE_URL", "http://localhost:11434/v1")
-    LLAMA_API_KEY = _get("LLAMA_API_KEY", "not-needed-for-local")
-    LLAMA_MODEL = _get("LLAMA_MODEL", "llama3.2:1b")
-    LLAMA_TIMEOUT = int(_get("LLAMA_TIMEOUT", "180"))
-    LLAMA_TEMPERATURE = float(_get("LLAMA_TEMPERATURE", "0.2"))
+    # OLLAMA_* names are preferred; LLAMA_* remain supported for existing setups.
+    OLLAMA_BASE_URL = _get(
+        "OLLAMA_BASE_URL",
+        _get("LLAMA_BASE_URL", "http://localhost:11434/v1"),
+    )
+    OLLAMA_API_KEY = _get("OLLAMA_API_KEY", _get("LLAMA_API_KEY", "ollama"))
+    OLLAMA_MODEL = _get("OLLAMA_MODEL", _get("LLAMA_MODEL", "qwen2.5:3b"))
+    OLLAMA_TIMEOUT = int(_get("OLLAMA_TIMEOUT", _get("LLAMA_TIMEOUT", "180")))
+    OLLAMA_TEMPERATURE = float(
+        _get("OLLAMA_TEMPERATURE", _get("LLAMA_TEMPERATURE", "0.2"))
+    )
+    # Compatibility aliases for the existing embedding/RAG integration.
+    LLAMA_BASE_URL = OLLAMA_BASE_URL
+    LLAMA_API_KEY = OLLAMA_API_KEY
+    LLAMA_MODEL = OLLAMA_MODEL
+    LLAMA_TIMEOUT = OLLAMA_TIMEOUT
     LLM_CONCURRENCY = int(_get("LLM_CONCURRENCY", "1"))
     # EMBEDDING_PROVIDER = "hash" (deterministic local fallback, no deps)
     #                    | "sentence-transformers" (local model)

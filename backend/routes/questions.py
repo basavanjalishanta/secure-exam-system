@@ -47,31 +47,18 @@ def _generate_for_slot(subject, slot, previous, accepted_texts):
     query = f"Unit {slot['unit']} {slot.get('topic_hint', '')} {slot['question_type']} key concepts"
     passages = rag_service.retrieve(str(subject["_id"]), query, unit=slot["unit"], top_k=3)
     context = rag_service.build_context(passages, max_chars=_LLM_CTX_CHARS)
-    candidates = ai_service.generate_questions(
+    cand = generation_worker.generate_unique_question(
         subject=subject,
-        unit=slot["unit"],
-        topic_hint=slot.get("topic_hint", ""),
-        count=1,
-        marks=slot["marks"],
-        difficulty=slot["difficulty"],
-        bloom=slot["bloom_level"],
-        qtype=slot["question_type"],
+        slot=slot,
         context=context,
-        previous_questions=previous[:10],
+        previous_questions=list(previous) + list(accepted_texts),
     )
-    if not candidates:
+    if not cand:
         return None
-    cand = candidates[0]
-    is_dup, score, matched = rag_service.is_duplicate(
-        str(subject["_id"]), cand["question"], extra_pool=list(accepted_texts) + previous
-    )
     cand.update({
         "section": slot["section"],
         "source": [f"{p['doc_type']} (unit {p['unit']}, score {p['score']})" for p in passages],
         "source_context": context[:CTX_PREVIEW],
-        "similarity_score": score,
-        "duplicate": is_dup,
-        "matched_question": matched if is_dup else None,
     })
     return cand
 
@@ -88,12 +75,21 @@ def generate():
     pattern = data.get("pattern") or subject.get("selected_pattern")
     if not pattern:
         return jsonify({"error": "No pattern selected. Run pattern selection first."}), 400
+    pattern = pattern_service.normalize_pattern(pattern)
 
-    units = data.get("units") or [u["unit"] for u in subject.get("units", [])] or [1, 2, 3, 4, 5]
+    units = data.get("units")
+    if not units:
+        available_units = [u["unit"] for u in subject.get("units", [])] or [1, 2, 3, 4, 5]
+        units = available_units[:pattern.get("units", len(available_units))]
     analysis = subject.get("pattern_analysis") or {}
     unit_weights = data.get("unit_weights") or {
         k: v / 100.0 for k, v in analysis.get("unit_distribution_percent", {}).items()
     } or None
+    topic_hints = data.get("topic_hints") or {}
+    if not isinstance(topic_hints, dict) or any(
+        not isinstance(value, str) or len(value) > 500 for value in topic_hints.values()
+    ):
+        return jsonify({"error": "topic_hints must map unit numbers to topic text (maximum 500 characters per unit)"}), 400
 
     try:
         job_id = generation_worker.create_generation_job(
@@ -101,6 +97,7 @@ def generate():
             pattern=pattern,
             units=units,
             unit_weights=unit_weights,
+            topic_hints=topic_hints,
             difficulty=data.get("difficulty", ""),
             bloom_level=data.get("bloom_level", ""),
             user_id=str(g.current_user["_id"]),
@@ -110,9 +107,12 @@ def generate():
             "job_id": job_id,
             "status": "queued",
             "message": "Question generation job successfully started.",
+            "pattern": pattern,
         }), 202
     except Exception as exc:
         current_app.logger.exception("Failed to start generation job: %s", exc)
+        if isinstance(exc, ValueError):
+            return jsonify({"error": str(exc)}), 400
         return jsonify({"error": f"Failed to start generation job: {exc}"}), 500
 
 
@@ -140,6 +140,8 @@ def regenerate_slot(job_id):
         if not new_q:
             return jsonify({"error": "Could not regenerate question for slot"}), 502
         return jsonify({"question": new_q}), 200
+    except ai_service.AIProviderError as exc:
+        return jsonify({"error": str(exc)}), 503
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -164,38 +166,23 @@ def regenerate():
         "topic_hint": data.get("topic_hint", q.get("topic", "")),
     }
 
-    previous = []
     avoid = data.get("existing_questions", [])
+    if not isinstance(avoid, list):
+        avoid = []
+    avoid = [question for question in avoid if isinstance(question, str)]
+    avoid.extend(_previous_questions(str(subject["_id"])))
     if q.get("question"):
-        avoid = avoid + [q["question"]]
+        avoid.append(q["question"])
 
-    query = f"Unit {slot['unit']} {slot.get('topic_hint', '')} {slot['question_type']} key concepts"
-    passages = rag_service.retrieve(str(subject["_id"]), query, unit=slot["unit"], top_k=3)
-    context = rag_service.build_context(passages, max_chars=_LLM_CTX_CHARS)
-
-    candidates = ai_service.generate_questions(
-        subject=subject,
-        unit=slot["unit"],
-        topic_hint=slot["topic_hint"],
-        count=1,
-        marks=slot["marks"],
-        difficulty=slot["difficulty"],
-        bloom=slot["bloom_level"],
-        qtype=slot["question_type"],
-        context=context,
-        previous_questions=avoid[:10],
-    )
-
-    if not candidates:
+    try:
+        new_q = _generate_for_slot(subject, slot, avoid, [])
+    except ai_service.AIProviderError as exc:
+        return jsonify({"error": str(exc)}), 503
+    if not new_q:
         return jsonify({"error": "could not generate a replacement question"}), 502
 
-    new_q = candidates[0]
     new_q["index"] = q.get("index")
     new_q["section"] = slot["section"]
-    new_q["source"] = [f"{p['doc_type']} (unit {p['unit']}, score {p['score']})" for p in passages]
-    new_q["source_context"] = context[:CTX_PREVIEW]
-    new_q["similarity_score"] = 0.0
-    new_q["duplicate"] = False
 
     log_action("REGENERATE_QUESTION", subject_id=str(subject["_id"]), unit=slot["unit"])
     return jsonify({"question": new_q})

@@ -25,10 +25,19 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     }
   })();
 
-  const [subjectId, setSubjectId] = useState<string>(saved.subjectId || "");
+  const [subjectId, setActiveSubjectId] = useState<string>(saved.subjectId || "");
   const [pattern, setPattern] = useState<Pattern | null>(saved.pattern || null);
   const [questions, setQuestions] = useState<Question[]>(saved.questions || []);
   const [validation, setValidation] = useState<any>(saved.validation || null);
+
+  function setSubjectId(id: string) {
+    if (id !== subjectId) {
+      setActiveSubjectId(id);
+      setPattern(null);
+      setQuestions([]);
+      setValidation(null);
+    }
+  }
 
   useEffect(() => {
     sessionStorage.setItem(KEY, JSON.stringify({ subjectId, pattern, questions, validation }));

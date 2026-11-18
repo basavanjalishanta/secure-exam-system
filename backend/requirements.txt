@@ -22,7 +22,7 @@ reportlab==4.2.2
 
 # --- AI / RAG ---
 numpy==1.26.4
-openai>=1.59.0            # used only to talk to a LOCAL LLaMA-compatible endpoint
+openai>=1.59.0            # used only to talk to the local Ollama OpenAI-compatible API
                           # (>=1.59 required: older 1.x pins break under httpx>=0.28)
 
 # --- Optional: real local embedding model (enable EMBEDDING_PROVIDER=sentence-transformers) ---

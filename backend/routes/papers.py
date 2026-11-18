@@ -9,7 +9,7 @@ from bson import ObjectId
 from flask import Blueprint, g, jsonify, request, send_file
 
 from models import db
-from services import encryption_service, pdf_service, rag_service
+from services import encryption_service, pattern_service, pdf_service, rag_service
 from utils.audit import log_action
 from utils.security import jwt_required, lecturer_required
 from utils.serialization import jsonify_doc
@@ -69,16 +69,37 @@ def generate_paper():
     if not subject:
         return jsonify({"error": "subject not found"}), 404
     questions = data.get("questions") or []
-    if not questions:
-        return jsonify({"error": "questions required"}), 400
+    if not isinstance(questions, list) or not questions:
+        return jsonify({"error": "questions must be a non-empty list"}), 400
+    if any(not isinstance(question, dict) for question in questions):
+        return jsonify({"error": "Each question must be an object"}), 400
+    missing_answers = [
+        index + 1
+        for index, question in enumerate(questions)
+        if not isinstance(question.get("answer"), str) or not question["answer"].strip()
+    ]
+    if missing_answers:
+        return jsonify({
+            "error": "Generate an answer for every question before creating the paper.",
+            "missing_question_numbers": missing_answers,
+        }), 400
 
+    pattern = data.get("pattern") or subject.get("selected_pattern")
+    if pattern:
+        pattern = pattern_service.normalize_pattern(pattern)
+    unit_or_pattern = pattern and (
+        pattern.get("format") == "unit_or" or "sub_parts" in pattern
+    )
+    effective_questions = [
+        q for q in questions if not unit_or_pattern or not q.get("is_or")
+    ]
     meta = data.get("meta") or {}
     meta.setdefault("college_name", "Siddaganga Institute of Technology, Tumakuru - 572 103")
     meta.setdefault("exam_name", "End Semester Examination")
     meta.setdefault("subject_name", subject["name"])
     meta.setdefault("subject_code", subject["code"])
     meta.setdefault("semester", subject.get("semester"))
-    meta.setdefault("max_marks", sum(int(q.get("marks", 0)) for q in questions))
+    meta.setdefault("max_marks", sum(int(q.get("marks", 0)) for q in effective_questions))
 
     paper_pdf = pdf_service.build_question_paper_pdf(meta, questions)
     answer_pdf = pdf_service.build_answer_key_pdf(meta, questions)
@@ -93,7 +114,7 @@ def generate_paper():
         "_id": ObjectId(paper_id),
         "subject_id": str(subject["_id"]),
         "subject_name": subject["name"],
-        "pattern": data.get("pattern") or subject.get("selected_pattern"),
+        "pattern": pattern,
         "meta": meta,
         "question_count": len(questions),
         "total_marks": meta["max_marks"],

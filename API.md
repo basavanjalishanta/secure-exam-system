@@ -98,8 +98,10 @@ Body:
   "bloom_level": "Understand"    // optional override
 }
 ```
-For each pattern slot: RAG retrieval (unit-filtered) → LLM → JSON question → duplicate
-check. → `{ generation_id, pattern, questions:[…], provider }`
+For each pattern slot: RAG retrieval (unit-filtered) → Ollama → structured JSON question →
+duplicate check. This endpoint starts a background job and returns HTTP `202` with
+`{ job_id, status, message }`. Poll `GET /questions/jobs/:job_id` for progress, results,
+and per-slot errors.
 
 Each question:
 ```json
@@ -115,6 +117,7 @@ Each question:
 ### POST `/questions/regenerate`
 Body: `{ subject_id, question, existing_questions?:[…], topic_hint? }`
 → `{ question }` (a fresh non-duplicate question for the same slot)
+Ollama failures return HTTP `503`.
 
 ---
 
@@ -125,6 +128,14 @@ Body: `{ subject_id, questions:[…] }`
 RAG retrieval from textbook/notes; answer depth scales with marks
 (2 → key points, 6 → definition+explanation+example, 10 → detailed + diagram note).
 → `{ questions:[… + answer, answer_support, answer_sources] }`
+Ollama failures return HTTP `503`.
+
+## Lesson Plans (👨‍🏫)
+
+### POST `/lesson-plans/generate`
+Body: `{ subject_id, meta?: { classes_per_week, total_contact_hours, ... } }`
+Generates and stores a structured OBE lesson plan using Ollama → `{ lesson_plan }`.
+Ollama failures return HTTP `503`.
 
 ---
 
@@ -199,4 +210,5 @@ recent_activity:[…], generation_history:[…] }`
 
 All errors: `{ "error": "message" }` with an appropriate HTTP status
 (`400` bad request, `401` unauthenticated, `403` forbidden / Access Denied,
-`404` not found, `409` conflict, `413` file too large, `422` unprocessable, `500`).
+`404` not found, `409` conflict, `413` file too large, `422` unprocessable,
+`500` internal error, `503` Ollama unavailable or returned unusable output).

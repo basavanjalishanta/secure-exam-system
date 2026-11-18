@@ -54,6 +54,7 @@ def select():
         analysis = subject.get("pattern_analysis") or {}
         pattern = analysis.get("suggested_pattern") or pattern_service.default_patterns()[0]
 
+    pattern = pattern_service.normalize_pattern(pattern)
     pattern.setdefault("total_marks", sum(s["total"] for s in pattern["sections"]))
     db.subjects().update_one(
         {"_id": ObjectId(subject_id)},

@@ -49,7 +49,10 @@ export default function QuestionReview() {
     }
   }
 
-  const total = questions.reduce((a, q) => a + Number(q.marks || 0), 0);
+  const total = questions.reduce(
+    (a, q) => a + (q.is_or ? 0 : Number(q.marks || 0)),
+    0,
+  );
 
   if (questions.length === 0)
     return (
@@ -106,9 +109,9 @@ export default function QuestionReview() {
                   {q.pso && <span className="badge bg-orange-50 text-orange-700">PSO: {q.pso}</span>}
                   <span
                     className={`badge ${
-                      (q.similarity_score ?? 0) > 0.8
-                        ? "bg-red-100 text-red-700"
-                        : "bg-green-100 text-green-700"
+                      q.duplicate
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-slate-100 text-slate-600"
                     }`}
                   >
                     sim {q.similarity_score?.toFixed(2) ?? "-"}

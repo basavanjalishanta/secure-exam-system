@@ -11,28 +11,52 @@ export default function PatternSelection() {
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    api.get("/pattern/defaults").then((r) => setDefaults(r.data.patterns));
+    api.get("/pattern/defaults")
+      .then((r) => setDefaults(r.data.patterns))
+      .catch((e) => setMsg(e.response?.data?.error || "Could not load available patterns."));
   }, []);
 
   useEffect(() => {
-    if (!subjectId) return;
-    api.get(`/subjects/${subjectId}`).then((r) => {
-      const a = r.data.subject.pattern_analysis;
-      setSuggested(a?.suggested_pattern || null);
-      if (r.data.subject.selected_pattern) setPattern(r.data.subject.selected_pattern);
-    });
-  }, [subjectId]);
+    setMsg("");
+    if (!subjectId) {
+      setSuggested(null);
+      return;
+    }
+
+    let active = true;
+    api.get(`/subjects/${subjectId}`)
+      .then((r) => {
+        if (!active) return;
+        const subject = r.data.subject;
+        setSuggested(subject.pattern_analysis?.suggested_pattern || null);
+        setPattern(subject.selected_pattern || null);
+      })
+      .catch((e) => {
+        if (active) setMsg(e.response?.data?.error || "Could not load this subject's pattern.");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [subjectId, setPattern]);
 
   async function choose(mode: "auto" | "manual", p?: Pattern) {
-    const r = await api.post("/pattern/select", { subject_id: subjectId, mode, pattern: p });
-    setPattern(r.data.pattern);
-    setMsg(`Selected "${r.data.pattern.name}" (${mode}).`);
+    try {
+      const r = await api.post("/pattern/select", { subject_id: subjectId, mode, pattern: p });
+      setPattern(r.data.pattern);
+      setMsg(`Selected "${r.data.pattern.name}" (${mode}).`);
+    } catch (e: any) {
+      setMsg(e.response?.data?.error || "Could not save the selected pattern.");
+    }
   }
 
-  const options = [
-    ...(suggested ? [{ ...suggested, name: suggested.name + " (auto from previous papers)" }] : []),
-    ...defaults,
-  ];
+  const options = defaults.map((p) => ({
+    pattern: p,
+    isSuggested: p.name === suggested?.name,
+  }));
+  if (suggested && !defaults.some((p) => p.name === suggested.name)) {
+    options.unshift({ pattern: suggested, isSuggested: true });
+  }
 
   return (
     <div>
@@ -49,14 +73,17 @@ export default function PatternSelection() {
             </button>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            {options.map((p, i) => (
+            {options.map(({ pattern: p, isSuggested }) => (
               <div
-                key={i}
+                key={p.name}
                 className={`card ${pattern?.name === p.name ? "ring-2 ring-brand-500" : ""}`}
               >
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium">{p.name}</h3>
-                  <span className="badge bg-brand-50 text-brand-700">{p.total_marks} marks</span>
+                  <div className="flex gap-2">
+                    {isSuggested && <span className="badge bg-blue-50 text-blue-700">Suggested</span>}
+                    <span className="badge bg-brand-50 text-brand-700">{p.total_marks} marks</span>
+                  </div>
                 </div>
                 <table className="mt-3 w-full text-sm">
                   <tbody>
@@ -70,7 +97,9 @@ export default function PatternSelection() {
                       <tr key={s.section} className="border-b border-slate-100">
                         <td className="py-1">{s.section.startsWith("Unit") ? s.section : `Section ${s.section}`}</td>
                         <td className="py-1 text-right">
-                          {s.count} × {s.marks_each} = {s.total}
+                          {p.format === "unit_or"
+                            ? `${s.count} questions, one OR choice · ${s.total} marks`
+                            : `${s.count} × ${s.marks_each} = ${s.total}`}
                         </td>
                       </tr>
                     ))}

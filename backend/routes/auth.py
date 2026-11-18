@@ -1,9 +1,10 @@
 """Authentication: register, login, logout, me."""
 from flask import Blueprint, g, jsonify, request
 import hashlib
+import logging
 import secrets
 from datetime import timedelta, timezone
-from utils.email_otp import send_login_otp
+from utils.email_otp import EmailConfigurationError, send_login_otp
 
 from models import db
 from config import config
@@ -17,6 +18,7 @@ from utils.security import (
 from utils.serialization import jsonify_doc
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
+logger = logging.getLogger(__name__)
 
 
 @bp.post("/register")
@@ -76,15 +78,26 @@ def login():
             "login_otp_attempts": 0,
         }},
     )
+    email_error = None
     try:
         send_login_otp(user.get("name", "User"), email, otp)
+    except EmailConfigurationError as exc:
+        email_error = str(exc)
+        logger.warning("Login OTP email configuration is invalid: %s", exc)
     except Exception:
+        logger.exception("Could not send login verification email")
+        email_error = (
+            "Email delivery failed. Check SMTP_HOST, SMTP_PORT, the Gmail App Password, "
+            "and that SMTP_FROM_EMAIL is allowed by the provider."
+        )
+
+    if email_error:
         db.users().update_one(
             {"_id": user["_id"]},
             {"$unset": {"login_otp_hash": "", "login_otp_expires_at": ""},
              "$set": {"login_otp_attempts": 0}},
         )
-        return jsonify({"error": "Could not send verification email. Check SMTP settings in backend/.env."}), 503
+        return jsonify({"error": email_error}), 503
 
     return jsonify({
         "message": "Verification code sent to your email.",

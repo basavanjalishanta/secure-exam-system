@@ -88,6 +88,16 @@ export interface Question {
   matched_question?: string | null;
   answer?: string;
   answer_support?: number;
+  answer_sources?: string[];
+}
+
+export function questionPaperNumber(question: Question, index: number): string {
+  const subPart = question.sub_part?.trim().replace(/[()]/g, "");
+  const number =
+    question.full_question_num != null
+      ? `Q${String(question.full_question_num).padStart(2, "0")}`
+      : `Q${(question.index ?? index) + 1}`;
+  return subPart ? `${number}(${subPart})` : number;
 }
 
 export const authApi = {
